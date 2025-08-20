@@ -1,0 +1,16 @@
+name: ruckus
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip:
+    - aiohttp
+    - fastapi
+    - httpx
+    - pydantic
+    - pydantic-settings
+    - pytest
+    - pyyaml
+    - requests
+    - uvicorn
+prefix: ruckus
