@@ -18,6 +18,8 @@ RUCKUS consists of four independent subprojects:
 - **Multiple Access Modes**: Supports white-box, gray-box, and black-box model access
 - **Distributed Architecture**: Scalable design with independent, containerized components
 - **Comprehensive Metrics**: Collects performance, quality, and resource utilization metrics
+- **Auto-Discovery**: Agents automatically detect system capabilities (CPU, GPU, frameworks, monitoring tools)
+- **Self-Registration**: Agents generate unique IDs and announce themselves to the server
 
 ## Development Setup
 
@@ -62,11 +64,14 @@ python -m ruckus_agent.main
 
 **Test agent endpoints:**
 ```bash
-# Registration endpoint
+# Registration endpoint - agent announces itself
 curl http://localhost:8081/api/v1/register
 
-# System info endpoint  
+# System info endpoint - detailed hardware/software capabilities
 curl http://localhost:8081/api/v1/info
+
+# Health check
+curl http://localhost:8081/health
 ```
 
 **Run the server** (when implemented):
