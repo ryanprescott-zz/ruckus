@@ -9,7 +9,9 @@ from typing import Dict, List, Optional
 import yaml
 from fastapi import FastAPI
 
-from .settings.settings import RuckusServerSettings
+from .settings.settings import RuckusServerSettings, PostgresStorageSettings, SQLiteStorageSettings, StorageBackendType
+from .storage.factory import StorageFactory
+from .storage.base import StorageBackend
 
 
 class RuckusServer:
@@ -28,9 +30,7 @@ class RuckusServer:
         self.settings = settings or RuckusServerSettings()
         self.logger = self._setup_logging()
         self.app: Optional[FastAPI] = None
-        self._agents: Dict[str, dict] = {}
-        self._experiments: Dict[str, dict] = {}
-        self._jobs: Dict[str, dict] = {}
+        self.storage: Optional[StorageBackend] = None
         
         self.logger.info("RUCKUS server initialized")
     
@@ -112,15 +112,32 @@ class RuckusServer:
     
     async def _setup_database(self) -> None:
         """Setup database connection and initialize schema."""
-        self.logger.info("Setting up database connection...")
-        # TODO: Implement database setup with SQLAlchemy and PostgreSQL
-        pass
+        self.logger.info("Setting up storage backend...")
+        
+        # Create storage backend based on configuration
+        if self.settings.storage_backend == StorageBackendType.POSTGRESQL:
+            postgres_settings = PostgresStorageSettings()
+            self.storage = StorageFactory.create_storage_backend(
+                StorageBackendType.POSTGRESQL, postgres_settings
+            )
+        elif self.settings.storage_backend == StorageBackendType.SQLITE:
+            sqlite_settings = SQLiteStorageSettings()
+            self.storage = StorageFactory.create_storage_backend(
+                StorageBackendType.SQLITE, sqlite_settings
+            )
+        else:
+            raise ValueError(f"Unsupported storage backend: {self.settings.storage_backend}")
+        
+        # Initialize the storage backend
+        await self.storage.initialize()
+        
+        self.logger.info(f"Storage backend ({self.settings.storage_backend}) initialized successfully")
     
     async def _cleanup_database(self) -> None:
         """Cleanup database connections."""
-        self.logger.info("Cleaning up database connections...")
-        # TODO: Implement database cleanup
-        pass
+        self.logger.info("Cleaning up storage backend...")
+        if self.storage:
+            await self.storage.close()
     
     def _setup_routes(self) -> None:
         """Setup FastAPI routes for the REST API."""
@@ -137,7 +154,13 @@ class RuckusServer:
         @self.app.get("/health")
         async def health():
             """Health check endpoint."""
-            return {"status": "healthy", "agents": len(self._agents)}
+            storage_healthy = await self.storage.health_check() if self.storage else False
+            agents = await self.storage.list_agents() if self.storage else []
+            return {
+                "status": "healthy" if storage_healthy else "unhealthy",
+                "storage": "healthy" if storage_healthy else "unhealthy",
+                "agents": len(agents)
+            }
         
         # TODO: Add experiment management endpoints
         # TODO: Add agent management endpoints  
@@ -171,18 +194,19 @@ class RuckusServer:
         """
         self.logger.info(f"Registering agent {agent_id}")
         
+        if not self.storage:
+            self.logger.error("Storage backend not initialized")
+            return False
+        
         # TODO: Validate agent capabilities
-        # TODO: Store agent in database
+        success = await self.storage.register_agent(agent_id, capabilities)
         
-        self._agents[agent_id] = {
-            "id": agent_id,
-            "capabilities": capabilities,
-            "status": "active",
-            "last_heartbeat": None
-        }
+        if success:
+            self.logger.info(f"Agent {agent_id} registered successfully")
+        else:
+            self.logger.error(f"Failed to register agent {agent_id}")
         
-        self.logger.info(f"Agent {agent_id} registered successfully")
-        return True
+        return success
     
     async def schedule_job(self, experiment_id: str, job_config: dict) -> Optional[str]:
         """Schedule a job for execution on an appropriate agent.
@@ -196,23 +220,25 @@ class RuckusServer:
         """
         self.logger.info(f"Scheduling job for experiment {experiment_id}")
         
+        if not self.storage:
+            self.logger.error("Storage backend not initialized")
+            return None
+        
         # TODO: Find suitable agent based on job requirements
-        # TODO: Create job record in database
-        # TODO: Send job to agent
+        # Generate unique job ID
+        import uuid
+        job_id = f"job_{uuid.uuid4().hex[:8]}"
         
-        job_id = f"job_{len(self._jobs)}"
-        self._jobs[job_id] = {
-            "id": job_id,
-            "experiment_id": experiment_id,
-            "config": job_config,
-            "status": "scheduled",
-            "agent_id": None
-        }
+        success = await self.storage.create_job(job_id, experiment_id, job_config)
         
-        self.logger.info(f"Job {job_id} scheduled")
-        return job_id
+        if success:
+            self.logger.info(f"Job {job_id} scheduled")
+            return job_id
+        else:
+            self.logger.error(f"Failed to schedule job for experiment {experiment_id}")
+            return None
     
-    def get_experiment_status(self, experiment_id: str) -> Optional[dict]:
+    async def get_experiment_status(self, experiment_id: str) -> Optional[dict]:
         """Get the status of an experiment.
         
         Args:
@@ -221,9 +247,13 @@ class RuckusServer:
         Returns:
             Experiment status dict or None if not found.
         """
-        return self._experiments.get(experiment_id)
+        if not self.storage:
+            self.logger.error("Storage backend not initialized")
+            return None
+        
+        return await self.storage.get_experiment(experiment_id)
     
-    def get_agent_status(self, agent_id: str) -> Optional[dict]:
+    async def get_agent_status(self, agent_id: str) -> Optional[dict]:
         """Get the status of an agent.
         
         Args:
@@ -232,4 +262,8 @@ class RuckusServer:
         Returns:
             Agent status dict or None if not found.
         """
-        return self._agents.get(agent_id)
+        if not self.storage:
+            self.logger.error("Storage backend not initialized")
+            return None
+        
+        return await self.storage.get_agent(agent_id)

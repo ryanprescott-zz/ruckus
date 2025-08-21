@@ -2,6 +2,51 @@
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from enum import Enum
+
+
+class StorageBackendType(str, Enum):
+    """Supported storage backend types."""
+    POSTGRESQL = "postgresql"
+    SQLITE = "sqlite"
+
+
+class PostgresStorageSettings(BaseSettings):
+    """PostgreSQL storage backend settings."""
+    
+    database_url: str = Field(
+        default="postgresql+asyncpg://ruckus:ruckus@localhost:5432/ruckus",
+        description="PostgreSQL database URL"
+    )
+    pool_size: int = Field(default=10, description="Database connection pool size")
+    max_overflow: int = Field(default=20, description="Database max overflow connections")
+    echo_sql: bool = Field(default=False, description="Echo SQL queries for debugging")
+    max_retries: int = Field(default=3, description="Maximum retry attempts for database operations")
+    retry_delay: float = Field(default=1.0, description="Base delay between retries in seconds")
+    
+    class Config:
+        """Pydantic configuration."""
+        env_prefix = "RUCKUS_POSTGRES_"
+        env_file = ".env"
+        case_sensitive = False
+
+
+class SQLiteStorageSettings(BaseSettings):
+    """SQLite storage backend settings."""
+    
+    database_path: str = Field(
+        default="data/ruckus.db",
+        description="Path to SQLite database file"
+    )
+    echo_sql: bool = Field(default=False, description="Echo SQL queries for debugging")
+    max_retries: int = Field(default=3, description="Maximum retry attempts for database operations")
+    retry_delay: float = Field(default=1.0, description="Base delay between retries in seconds")
+    
+    class Config:
+        """Pydantic configuration."""
+        env_prefix = "RUCKUS_SQLITE_"
+        env_file = ".env"
+        case_sensitive = False
 
 
 class RuckusServerSettings(BaseSettings):
@@ -16,13 +61,11 @@ class RuckusServerSettings(BaseSettings):
     port: int = Field(default=8000, description="Server port")
     debug: bool = Field(default=False, description="Enable debug mode")
     
-    # Database configuration
-    database_url: str = Field(
-        default="postgresql://ruckus:ruckus@localhost:5432/ruckus",
-        description="PostgreSQL database URL"
+    # Storage backend configuration
+    storage_backend: StorageBackendType = Field(
+        default=StorageBackendType.SQLITE,
+        description="Storage backend type"
     )
-    database_pool_size: int = Field(default=10, description="Database connection pool size")
-    database_max_overflow: int = Field(default=20, description="Database max overflow connections")
     
     # Agent management
     agent_heartbeat_timeout: int = Field(

@@ -1,0 +1,464 @@
+"""PostgreSQL storage backend implementation."""
+
+import logging
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+
+from sqlalchemy import create_engine, select, update, delete
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+
+from .base import StorageBackend, Base, Agent, Experiment, Job
+from ..settings.settings import PostgresStorageSettings
+
+
+class PostgreSQLStorageBackend(StorageBackend):
+    """PostgreSQL storage backend implementation."""
+    
+    def __init__(self, settings: PostgresStorageSettings):
+        """Initialize PostgreSQL storage backend.
+        
+        Args:
+            settings: PostgreSQL storage settings.
+        """
+        self.settings = settings
+        self.logger = logging.getLogger(__name__)
+        self.engine = None
+        self.session_factory = None
+    
+    async def initialize(self) -> None:
+        """Initialize the PostgreSQL storage backend."""
+        try:
+            # Create async engine
+            self.engine = create_async_engine(
+                self.settings.database_url,
+                pool_size=self.settings.pool_size,
+                max_overflow=self.settings.max_overflow,
+                echo=self.settings.echo_sql
+            )
+            
+            # Create session factory
+            self.session_factory = sessionmaker(
+                self.engine, class_=AsyncSession, expire_on_commit=False
+            )
+            
+            # Create tables
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            
+            self.logger.info("PostgreSQL storage backend initialized")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize PostgreSQL storage: {e}")
+            raise
+    
+    async def close(self) -> None:
+        """Close PostgreSQL connections."""
+        if self.engine:
+            await self.engine.dispose()
+            self.logger.info("PostgreSQL storage backend closed")
+    
+    async def health_check(self) -> bool:
+        """Check PostgreSQL connection health."""
+        try:
+            async with self.session_factory() as session:
+                await session.execute(select(1))
+                return True
+        except Exception as e:
+            self.logger.error(f"PostgreSQL health check failed: {e}")
+            return False
+    
+    async def _retry_operation(self, operation, *args, **kwargs):
+        """Retry database operations with exponential backoff."""
+        import asyncio
+        
+        for attempt in range(self.settings.max_retries):
+            try:
+                return await operation(*args, **kwargs)
+            except SQLAlchemyError as e:
+                if attempt == self.settings.max_retries - 1:
+                    self.logger.error(f"Database operation failed after {self.settings.max_retries} attempts: {e}")
+                    raise
+                
+                wait_time = self.settings.retry_delay * (2 ** attempt)
+                self.logger.warning(f"Database operation failed (attempt {attempt + 1}), retrying in {wait_time}s: {e}")
+                await asyncio.sleep(wait_time)
+    
+    # Agent management
+    async def register_agent(self, agent_id: str, capabilities: Dict[str, Any]) -> bool:
+        """Register a new agent."""
+        async def _register():
+            async with self.session_factory() as session:
+                agent = Agent(
+                    id=agent_id,
+                    capabilities=capabilities,
+                    status="active",
+                    last_heartbeat=datetime.utcnow()
+                )
+                session.add(agent)
+                await session.commit()
+                return True
+        
+        try:
+            return await self._retry_operation(_register)
+        except Exception as e:
+            self.logger.error(f"Failed to register agent {agent_id}: {e}")
+            return False
+    
+    async def update_agent_status(self, agent_id: str, status: str) -> bool:
+        """Update agent status."""
+        async def _update():
+            async with self.session_factory() as session:
+                stmt = update(Agent).where(Agent.id == agent_id).values(
+                    status=status, updated_at=datetime.utcnow()
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_update)
+        except Exception as e:
+            self.logger.error(f"Failed to update agent {agent_id} status: {e}")
+            return False
+    
+    async def update_agent_heartbeat(self, agent_id: str) -> bool:
+        """Update agent last heartbeat timestamp."""
+        async def _update():
+            async with self.session_factory() as session:
+                stmt = update(Agent).where(Agent.id == agent_id).values(
+                    last_heartbeat=datetime.utcnow(), updated_at=datetime.utcnow()
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_update)
+        except Exception as e:
+            self.logger.error(f"Failed to update agent {agent_id} heartbeat: {e}")
+            return False
+    
+    async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get agent by ID."""
+        async def _get():
+            async with self.session_factory() as session:
+                stmt = select(Agent).where(Agent.id == agent_id)
+                result = await session.execute(stmt)
+                agent = result.scalar_one_or_none()
+                
+                if agent:
+                    return {
+                        "id": agent.id,
+                        "capabilities": agent.capabilities,
+                        "status": agent.status,
+                        "last_heartbeat": agent.last_heartbeat,
+                        "created_at": agent.created_at,
+                        "updated_at": agent.updated_at
+                    }
+                return None
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get agent {agent_id}: {e}")
+            return None
+    
+    async def list_agents(self) -> List[Dict[str, Any]]:
+        """List all agents."""
+        async def _list():
+            async with self.session_factory() as session:
+                stmt = select(Agent)
+                result = await session.execute(stmt)
+                agents = result.scalars().all()
+                
+                return [
+                    {
+                        "id": agent.id,
+                        "capabilities": agent.capabilities,
+                        "status": agent.status,
+                        "last_heartbeat": agent.last_heartbeat,
+                        "created_at": agent.created_at,
+                        "updated_at": agent.updated_at
+                    }
+                    for agent in agents
+                ]
+        
+        try:
+            return await self._retry_operation(_list)
+        except Exception as e:
+            self.logger.error(f"Failed to list agents: {e}")
+            return []
+    
+    async def remove_agent(self, agent_id: str) -> bool:
+        """Remove an agent."""
+        async def _remove():
+            async with self.session_factory() as session:
+                stmt = delete(Agent).where(Agent.id == agent_id)
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_remove)
+        except Exception as e:
+            self.logger.error(f"Failed to remove agent {agent_id}: {e}")
+            return False
+    
+    # Experiment management
+    async def create_experiment(self, experiment_id: str, name: str, 
+                              description: str, config: Dict[str, Any]) -> bool:
+        """Create a new experiment."""
+        async def _create():
+            async with self.session_factory() as session:
+                experiment = Experiment(
+                    id=experiment_id,
+                    name=name,
+                    description=description,
+                    config=config,
+                    status="created"
+                )
+                session.add(experiment)
+                await session.commit()
+                return True
+        
+        try:
+            return await self._retry_operation(_create)
+        except Exception as e:
+            self.logger.error(f"Failed to create experiment {experiment_id}: {e}")
+            return False
+    
+    async def update_experiment_status(self, experiment_id: str, status: str) -> bool:
+        """Update experiment status."""
+        async def _update():
+            async with self.session_factory() as session:
+                stmt = update(Experiment).where(Experiment.id == experiment_id).values(
+                    status=status, updated_at=datetime.utcnow()
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_update)
+        except Exception as e:
+            self.logger.error(f"Failed to update experiment {experiment_id} status: {e}")
+            return False
+    
+    async def get_experiment(self, experiment_id: str) -> Optional[Dict[str, Any]]:
+        """Get experiment by ID."""
+        async def _get():
+            async with self.session_factory() as session:
+                stmt = select(Experiment).where(Experiment.id == experiment_id)
+                result = await session.execute(stmt)
+                experiment = result.scalar_one_or_none()
+                
+                if experiment:
+                    return {
+                        "id": experiment.id,
+                        "name": experiment.name,
+                        "description": experiment.description,
+                        "config": experiment.config,
+                        "status": experiment.status,
+                        "created_at": experiment.created_at,
+                        "updated_at": experiment.updated_at
+                    }
+                return None
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get experiment {experiment_id}: {e}")
+            return None
+    
+    async def list_experiments(self) -> List[Dict[str, Any]]:
+        """List all experiments."""
+        async def _list():
+            async with self.session_factory() as session:
+                stmt = select(Experiment)
+                result = await session.execute(stmt)
+                experiments = result.scalars().all()
+                
+                return [
+                    {
+                        "id": experiment.id,
+                        "name": experiment.name,
+                        "description": experiment.description,
+                        "config": experiment.config,
+                        "status": experiment.status,
+                        "created_at": experiment.created_at,
+                        "updated_at": experiment.updated_at
+                    }
+                    for experiment in experiments
+                ]
+        
+        try:
+            return await self._retry_operation(_list)
+        except Exception as e:
+            self.logger.error(f"Failed to list experiments: {e}")
+            return []
+    
+    async def delete_experiment(self, experiment_id: str) -> bool:
+        """Delete an experiment."""
+        async def _delete():
+            async with self.session_factory() as session:
+                stmt = delete(Experiment).where(Experiment.id == experiment_id)
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_delete)
+        except Exception as e:
+            self.logger.error(f"Failed to delete experiment {experiment_id}: {e}")
+            return False
+    
+    # Job management
+    async def create_job(self, job_id: str, experiment_id: str, 
+                        config: Dict[str, Any]) -> bool:
+        """Create a new job."""
+        async def _create():
+            async with self.session_factory() as session:
+                job = Job(
+                    id=job_id,
+                    experiment_id=experiment_id,
+                    config=config,
+                    status="scheduled"
+                )
+                session.add(job)
+                await session.commit()
+                return True
+        
+        try:
+            return await self._retry_operation(_create)
+        except Exception as e:
+            self.logger.error(f"Failed to create job {job_id}: {e}")
+            return False
+    
+    async def assign_job_to_agent(self, job_id: str, agent_id: str) -> bool:
+        """Assign a job to an agent."""
+        async def _assign():
+            async with self.session_factory() as session:
+                stmt = update(Job).where(Job.id == job_id).values(
+                    agent_id=agent_id,
+                    status="assigned",
+                    updated_at=datetime.utcnow()
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_assign)
+        except Exception as e:
+            self.logger.error(f"Failed to assign job {job_id} to agent {agent_id}: {e}")
+            return False
+    
+    async def update_job_status(self, job_id: str, status: str, 
+                               results: Optional[Dict[str, Any]] = None,
+                               error_message: Optional[str] = None) -> bool:
+        """Update job status and results."""
+        async def _update():
+            async with self.session_factory() as session:
+                values = {
+                    "status": status,
+                    "updated_at": datetime.utcnow()
+                }
+                
+                if results is not None:
+                    values["results"] = results
+                
+                if error_message is not None:
+                    values["error_message"] = error_message
+                
+                if status == "running":
+                    values["started_at"] = datetime.utcnow()
+                elif status in ["completed", "failed"]:
+                    values["completed_at"] = datetime.utcnow()
+                
+                stmt = update(Job).where(Job.id == job_id).values(**values)
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_update)
+        except Exception as e:
+            self.logger.error(f"Failed to update job {job_id} status: {e}")
+            return False
+    
+    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job by ID."""
+        async def _get():
+            async with self.session_factory() as session:
+                stmt = select(Job).where(Job.id == job_id)
+                result = await session.execute(stmt)
+                job = result.scalar_one_or_none()
+                
+                if job:
+                    return {
+                        "id": job.id,
+                        "experiment_id": job.experiment_id,
+                        "agent_id": job.agent_id,
+                        "config": job.config,
+                        "status": job.status,
+                        "results": job.results,
+                        "error_message": job.error_message,
+                        "started_at": job.started_at,
+                        "completed_at": job.completed_at,
+                        "created_at": job.created_at,
+                        "updated_at": job.updated_at
+                    }
+                return None
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get job {job_id}: {e}")
+            return None
+    
+    async def list_jobs(self, experiment_id: Optional[str] = None,
+                       agent_id: Optional[str] = None,
+                       status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List jobs with optional filtering."""
+        async def _list():
+            async with self.session_factory() as session:
+                stmt = select(Job)
+                
+                if experiment_id:
+                    stmt = stmt.where(Job.experiment_id == experiment_id)
+                if agent_id:
+                    stmt = stmt.where(Job.agent_id == agent_id)
+                if status:
+                    stmt = stmt.where(Job.status == status)
+                
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+                
+                return [
+                    {
+                        "id": job.id,
+                        "experiment_id": job.experiment_id,
+                        "agent_id": job.agent_id,
+                        "config": job.config,
+                        "status": job.status,
+                        "results": job.results,
+                        "error_message": job.error_message,
+                        "started_at": job.started_at,
+                        "completed_at": job.completed_at,
+                        "created_at": job.created_at,
+                        "updated_at": job.updated_at
+                    }
+                    for job in jobs
+                ]
+        
+        try:
+            return await self._retry_operation(_list)
+        except Exception as e:
+            self.logger.error(f"Failed to list jobs: {e}")
+            return []
+    
+    async def get_jobs_for_agent(self, agent_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get jobs assigned to a specific agent."""
+        return await self.list_jobs(agent_id=agent_id, status=status)
