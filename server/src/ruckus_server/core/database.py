@@ -1,5 +1,7 @@
 """Database connection and session management."""
 
+import os
+from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -33,6 +35,13 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     """Initialize database tables."""
+    # Ensure database directory exists
+    if settings.database_url.startswith("sqlite"):
+        # Extract path from sqlite URL (format: sqlite+aiosqlite:///./data/ruckus.db)
+        db_path = settings.database_url.split("///")[-1]
+        db_dir = Path(db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+    
     async with engine.begin() as conn:
         # TODO: Create tables
         # await conn.run_sync(Base.metadata.create_all)
