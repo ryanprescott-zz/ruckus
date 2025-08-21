@@ -229,6 +229,25 @@ class ErrorInfo(BaseModel):
     traceback: Optional[str] = None
 
 
+# Agent Registration Models
+class AgentRegistrationResponse(BaseModel):
+    """Response to agent registration."""
+    agent_id: str
+    agent_name: Optional[str] = None
+    message: Optional[str] = None
+    server_time: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AgentInfoResponse(BaseModel):
+    """Response containing agent system information."""
+    agent_id: str
+    agent_name: Optional[str] = None
+    agent_type: AgentType
+    system_info: Dict[str, Any] = Field(default_factory=dict)
+    capabilities: Dict[str, Any] = Field(default_factory=dict)
+    last_updated: datetime = Field(default_factory=datetime.utcnow)
+
+
 # Response Models
 class HealthStatus(BaseModel):
     """Health check response."""

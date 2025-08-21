@@ -2,28 +2,35 @@
 
 import asyncio
 import httpx
+import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from ruckus_common.models import JobRequest, JobStatus, AgentType
+from ruckus_common.models import JobRequest, JobStatus, AgentType, JobUpdate
 from .config import Settings
 from .models import AgentRegistration, AgentStatus
 from .detector import AgentDetector
+from .storage import AgentStorage, InMemoryStorage
 
 
 class Agent:
     """Main agent class coordinating job execution."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, storage: Optional[AgentStorage] = None):
         self.settings = settings
-        self.agent_id = settings.agent_id
+        # Generate unique agent ID and name
+        self.agent_id = f"agent-{uuid.uuid4().hex[:8]}"
+        self.agent_name = f"{self.agent_id}-{settings.agent_type.value}"
         self.orchestrator_url = settings.orchestrator_url
+
+        # Storage backend
+        self.storage = storage or InMemoryStorage()
 
         # State
         self.registered = False
-        self.capabilities = {}
         self.running_jobs: Dict[str, Any] = {}
         self.job_queue: asyncio.Queue = asyncio.Queue()
+        self.startup_time = datetime.utcnow()
 
         # HTTP client for orchestrator communication
         self.client = httpx.AsyncClient()
@@ -58,10 +65,33 @@ class Agent:
         await self.client.aclose()
 
     async def _detect_capabilities(self):
-        """Detect agent capabilities."""
+        """Detect agent capabilities and system info."""
         detector = AgentDetector()
-        self.capabilities = await detector.detect_all()
-        print(f"Detected capabilities: {self.capabilities}")
+        detected = await detector.detect_all()
+        
+        # Store system info in storage
+        system_info = {
+            "system": detected.get("system", {}),
+            "cpu": detected.get("cpu", {}),
+            "gpus": detected.get("gpus", []),
+            "frameworks": detected.get("frameworks", []),
+            "models": detected.get("models", []),
+            "hooks": detected.get("hooks", []),
+            "metrics": detected.get("metrics", [])
+        }
+        await self.storage.store_system_info(system_info)
+        
+        # Store simplified capabilities for internal use
+        capabilities = {
+            "agent_type": self.settings.agent_type.value,
+            "gpu_count": len(detected.get("gpus", [])),
+            "frameworks": [f["name"] for f in detected.get("frameworks", [])],
+            "max_concurrent_jobs": self.settings.max_concurrent_jobs,
+            "monitoring_available": bool(detected.get("hooks", [])),
+        }
+        await self.storage.store_capabilities(capabilities)
+        
+        print(f"Agent {self.agent_id} ({self.agent_name}) capabilities detected")
 
     async def _register(self):
         """Register with orchestrator."""
@@ -137,7 +167,11 @@ class Agent:
     
     async def get_capabilities(self) -> Dict:
         """Get agent capabilities."""
-        return self.capabilities
+        return await self.storage.get_capabilities()
+
+    async def get_system_info(self) -> Dict:
+        """Get detailed system info for /info endpoint."""
+        return await self.storage.get_system_info()
 
     async def get_status(self) -> Dict:
         """Get agent status."""

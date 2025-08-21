@@ -2,7 +2,7 @@
 
 from enum import Enum
 from pydantic import BaseModel, Field, validator
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 import uuid
 

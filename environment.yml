@@ -1,0 +1,27 @@
+name: ruckus
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      # Core dependencies (will be installed via pyproject.toml)
+      - fastapi
+      - pydantic>=2.0
+      - pydantic-settings
+      - httpx
+      - psutil
+      - uvicorn
+      
+      # Development dependencies
+      - pytest
+      - pytest-asyncio
+      - black
+      - isort
+      - mypy
+      - coverage
+      
+      # Additional tools
+      - jupyter
+      - requests

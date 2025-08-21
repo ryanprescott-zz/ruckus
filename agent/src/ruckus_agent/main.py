@@ -5,9 +5,10 @@ import uvicorn
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from .api.v1.api import api_router
+from .api.v1.api import router as api_router
 from .core.config import settings
 from .core.agent import Agent
+from . import __version__
 
 
 # Global agent instance

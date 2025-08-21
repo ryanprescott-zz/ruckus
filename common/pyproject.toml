@@ -7,7 +7,7 @@ name = "ruckus-common"
 version = "0.1.0"
 description = "RUCKUS shared protocol and models"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "pydantic",
 ]

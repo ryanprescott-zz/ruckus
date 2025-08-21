@@ -3,7 +3,10 @@
 from fastapi import APIRouter, Request
 from typing import Dict, Any
 
-from ruckus_common.models import JobRequest, JobUpdate, JobResult
+from ruckus_common.models import (
+    JobRequest, JobUpdate, JobResult, AgentType,
+    AgentRegistrationResponse, AgentInfoResponse
+)
 
 router = APIRouter()
 
@@ -15,11 +18,43 @@ async def api_info():
         "version": "v1",
         "type": "agent",
         "endpoints": [
+            "/register",
+            "/info",
             "/capabilities",
             "/execute",
             "/status",
         ]
     }
+
+
+@router.get("/register", response_model=AgentRegistrationResponse)
+async def register_agent(request: Request):
+    """Register agent with server - announces agent ID and name."""
+    agent = request.app.state.agent
+    
+    response = AgentRegistrationResponse(
+        agent_id=agent.agent_id,
+        agent_name=agent.agent_name,
+        message="Agent registered successfully"
+    )
+    return response
+
+
+@router.get("/info", response_model=AgentInfoResponse)
+async def get_agent_info(request: Request):
+    """Get detailed agent system information."""
+    agent = request.app.state.agent
+    system_info = await agent.get_system_info()
+    capabilities = await agent.get_capabilities()
+    
+    response = AgentInfoResponse(
+        agent_id=agent.agent_id,
+        agent_name=agent.agent_name,
+        agent_type=agent.settings.agent_type,
+        system_info=system_info,
+        capabilities=capabilities
+    )
+    return response
 
 
 @router.get("/capabilities")
