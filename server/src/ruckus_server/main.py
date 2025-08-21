@@ -1,20 +1,51 @@
-"""RUCKUS server main entry point."""
+"""Main entry point for RUCKUS server."""
 
+import asyncio
 import uvicorn
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="RUCKUS Server", version="0.1.0")
+from .api.v1.api import api_router
+from .core.config import settings
+from .core.database import init_db
 
 
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {"message": "RUCKUS Server"}
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle."""
+    # Startup
+    print(f"Starting RUCKUS Server v{__version__}")
+    await init_db()
+    yield
+    # Shutdown
+    print("Shutting down RUCKUS Server")
+
+
+app = FastAPI(
+    title="RUCKUS Server",
+    description="Orchestrator for distributed model benchmarking",
+    version=__version__,
+    lifespan=lifespan,
+)
+
+# Include API router
+app.include_router(api_router, prefix="/api/v1")
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "version": __version__}
 
 
 def main():
-    """Main entry point."""
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    """Run the server."""
+    uvicorn.run(
+        "ruckus_server.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+    )
 
 
 if __name__ == "__main__":
