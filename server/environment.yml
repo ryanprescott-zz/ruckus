@@ -1,0 +1,29 @@
+name: ruckus-server
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.13
+  - pip
+  - fastapi
+  - uvicorn[standard]
+  - pydantic
+  - pydantic-settings
+  - sqlalchemy
+  - alembic
+  - psycopg2
+  - aiosqlite
+  - python-multipart
+  - python-jose[cryptography]
+  - passlib[bcrypt]
+  - pytest
+  - pytest-asyncio
+  - pytest-cov
+  - black
+  - isort
+  - mypy
+  - flake8
+  - pip:
+    - -e ../common
+    - -e .
+prefix: /opt/conda/envs/ruckus-server
