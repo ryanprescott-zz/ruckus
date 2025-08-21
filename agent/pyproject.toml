@@ -7,13 +7,14 @@ name = "ruckus-agent"
 version = "0.1.0"
 description = "RUCKUS distributed benchmarking agent"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi",
     "pydantic",
     "pydantic-settings",
     "httpx",
     "psutil",
+    "uvicorn",
     "ruckus-common",
 ]
 

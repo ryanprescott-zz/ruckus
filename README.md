@@ -19,21 +19,60 @@ RUCKUS consists of four independent subprojects:
 - **Distributed Architecture**: Scalable design with independent, containerized components
 - **Comprehensive Metrics**: Collects performance, quality, and resource utilization metrics
 
-## Quick Start
+## Development Setup
 
-Each subproject is independently buildable and deployable:
+### Prerequisites
 
+- Python 3.12+
+- Conda (recommended) or Python venv
+
+### Environment Setup
+
+1. **Create and activate conda environment:**
+   ```bash
+   conda env create -f environment.yml
+   conda activate ruckus
+   ```
+
+   Or with pip/venv:
+   ```bash
+   python3.12 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. **Install packages in development mode:**
+   ```bash
+   # Install common package first (required by server and agent)
+   cd common && pip install -e .
+   
+   # Install agent package
+   cd ../agent && pip install -e .
+   
+   # Install server package
+   cd ../server && pip install -e .
+   ```
+
+### Quick Start
+
+**Run the agent:**
 ```bash
-# Build common package first (required by server and agent)
-cd common && pip install -e .
+conda activate ruckus
+python -m ruckus_agent.main
+```
 
-# Build and run server
-cd server && pip install -e .
-python -m ruckus_server
+**Test agent endpoints:**
+```bash
+# Registration endpoint
+curl http://localhost:8081/api/v1/register
 
-# Build and run agent
-cd agent && pip install -e .
-python -m ruckus_agent
+# System info endpoint  
+curl http://localhost:8081/api/v1/info
+```
+
+**Run the server** (when implemented):
+```bash
+conda activate ruckus
+python -m ruckus_server.main
 ```
 
 ## Project Structure
