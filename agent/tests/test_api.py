@@ -172,12 +172,8 @@ class TestAgentAPI:
             assert field in info_data
 
     def test_concurrent_requests(self, client):
-        """Test handling concurrent requests to endpoints."""
-        import concurrent.futures
-        import requests
-        
-        # Note: This would need to be adapted for async testing in a real scenario
-        # For now, just test that multiple sequential requests work
+        """Test handling multiple sequential requests to endpoints."""
+        # Test that multiple sequential requests work
         responses = []
         for _ in range(5):
             response = client.get("/api/v1/register")

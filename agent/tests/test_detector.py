@@ -1,7 +1,7 @@
 """Tests for system detection functionality."""
 
 import pytest
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import patch, Mock, MagicMock, AsyncMock
 from ruckus_agent.core.detector import AgentDetector
 
 
@@ -30,27 +30,34 @@ class TestAgentDetector:
                 assert key in result
 
     @pytest.mark.asyncio
-    @patch('ruckus_agent.core.detector.platform')
-    @patch('ruckus_agent.core.detector.psutil')
-    async def test_detect_system(self, mock_psutil, mock_platform):
+    @patch('platform.node')
+    @patch('platform.system') 
+    @patch('platform.version')
+    @patch('platform.release')
+    @patch('platform.python_version')
+    @patch('psutil.virtual_memory')
+    @patch('psutil.disk_usage')
+    async def test_detect_system(self, mock_disk_usage, mock_virtual_memory, 
+                                mock_python_version, mock_release, mock_version, 
+                                mock_system, mock_node):
         """Test system information detection."""
-        # Mock platform module
-        mock_platform.node.return_value = "test-hostname"
-        mock_platform.system.return_value = "Linux"
-        mock_platform.version.return_value = "5.4.0"
-        mock_platform.release.return_value = "5.4.0-generic"
-        mock_platform.python_version.return_value = "3.12.0"
+        # Mock platform functions
+        mock_node.return_value = "test-hostname"
+        mock_system.return_value = "Linux"
+        mock_version.return_value = "5.4.0"
+        mock_release.return_value = "5.4.0-generic"
+        mock_python_version.return_value = "3.12.0"
         
         # Mock psutil
         mock_memory = Mock()
         mock_memory.total = 16 * (1024**3)  # 16GB
         mock_memory.available = 8 * (1024**3)  # 8GB available
-        mock_psutil.virtual_memory.return_value = mock_memory
+        mock_virtual_memory.return_value = mock_memory
         
         mock_disk = Mock()
         mock_disk.total = 1000 * (1024**3)  # 1TB
         mock_disk.free = 500 * (1024**3)  # 500GB free
-        mock_psutil.disk_usage.return_value = mock_disk
+        mock_disk_usage.return_value = mock_disk
         
         detector = AgentDetector()
         result = await detector.detect_system()
@@ -62,18 +69,20 @@ class TestAgentDetector:
         assert result["available_memory_gb"] == pytest.approx(8.0, rel=0.1)
 
     @pytest.mark.asyncio
-    @patch('ruckus_agent.core.detector.platform')
-    @patch('ruckus_agent.core.detector.psutil')
-    async def test_detect_cpu(self, mock_psutil, mock_platform):
+    @patch('platform.processor')
+    @patch('platform.machine')
+    @patch('psutil.cpu_count')
+    @patch('psutil.cpu_freq')
+    async def test_detect_cpu(self, mock_cpu_freq, mock_cpu_count, mock_machine, mock_processor):
         """Test CPU information detection."""
-        mock_platform.processor.return_value = "Intel Core i7"
-        mock_platform.machine.return_value = "x86_64"
+        mock_processor.return_value = "Intel Core i7"
+        mock_machine.return_value = "x86_64"
         
-        mock_psutil.cpu_count.side_effect = lambda logical=True: 8 if logical else 4
+        mock_cpu_count.side_effect = lambda logical=True: 8 if logical else 4
         
         mock_freq = Mock()
         mock_freq.current = 2800.0
-        mock_psutil.cpu_freq.return_value = mock_freq
+        mock_cpu_freq.return_value = mock_freq
         
         detector = AgentDetector()
         result = await detector.detect_cpu()
