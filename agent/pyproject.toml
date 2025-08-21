@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ruckus-agent"
+version = "0.1.0"
+description = "RUCKUS distributed benchmarking agent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "pydantic",
+    "pydantic-settings",
+    "httpx",
+    "psutil",
+    "ruckus-common",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "isort",
+    "mypy",
+]
+
+[project.scripts]
+ruckus-agent = "ruckus_agent.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ruckus_agent"]
