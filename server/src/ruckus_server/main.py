@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
+from . import __version__
 from .api.v1.api import api_router
 from .core.config import settings
 from .core.database import init_db
