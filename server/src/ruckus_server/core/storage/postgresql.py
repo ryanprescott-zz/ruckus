@@ -10,13 +10,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from .base import StorageBackend, Base, Agent, Experiment, Job
-from ..settings.settings import PostgresStorageSettings
+from ..config import PostgreSQLSettings
 
 
 class PostgreSQLStorageBackend(StorageBackend):
     """PostgreSQL storage backend implementation."""
     
-    def __init__(self, settings: PostgresStorageSettings):
+    def __init__(self, settings: PostgreSQLSettings):
         """Initialize PostgreSQL storage backend.
         
         Args:

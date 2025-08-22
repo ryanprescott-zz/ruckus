@@ -11,13 +11,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from .base import StorageBackend, Base, Agent, Experiment, Job
-from ..settings.settings import SQLiteStorageSettings
+from ..config import SQLiteSettings
 
 
 class SQLiteStorageBackend(StorageBackend):
     """SQLite storage backend implementation."""
     
-    def __init__(self, settings: SQLiteStorageSettings):
+    def __init__(self, settings: SQLiteSettings):
         """Initialize SQLite storage backend.
         
         Args:

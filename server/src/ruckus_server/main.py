@@ -14,19 +14,42 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .api.v1.api import api_router
-from .core.config import settings
-from .core.database import init_db
+from .core.config import settings, StorageBackendType
+from .core.storage.postgresql import PostgreSQLStorageBackend
+from .core.storage.sqlite import SQLiteStorageBackend
 
+
+# Global storage backend instance
+storage_backend = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
+    global storage_backend
+    
     # Startup
     print(f"Starting RUCKUS Server v{__version__}")
-    await init_db()
+    
+    # Initialize storage backend based on settings
+    if settings.storage_backend == StorageBackendType.POSTGRESQL:
+        storage_backend = PostgreSQLStorageBackend(settings.postgresql)
+    elif settings.storage_backend == StorageBackendType.SQLITE:
+        storage_backend = SQLiteStorageBackend(settings.sqlite)
+    else:
+        raise ValueError(f"Unsupported storage backend: {settings.storage_backend}")
+    
+    await storage_backend.initialize()
+    print(f"Initialized {settings.storage_backend} storage backend")
+    
+    # Make storage backend available to the app
+    app.state.storage = storage_backend
+    
     yield
+    
     # Shutdown
     print("Shutting down RUCKUS Server")
+    if storage_backend:
+        await storage_backend.close()
 
 
 app = FastAPI(
@@ -69,7 +92,7 @@ def health_check():
     return {"status": "healthy"}
 
 
-@app.get(f"{uri_prefix}/docs", include_in_schema=False)
+@app.get(f"{settings.server.api_prefix}/docs", include_in_schema=False)
 async def self_hosted_swagger_ui_html():
     """
     Serve the self-hosted Swagger UI HTML.
@@ -112,9 +135,9 @@ def main():
     """Run the server."""
     uvicorn.run(
         "ruckus_server.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
+        host=settings.server.host,
+        port=settings.server.port,
+        reload=settings.server.debug,
     )
 
 
