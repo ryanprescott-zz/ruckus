@@ -1,0 +1,5 @@
+#/usr/bin/env bash
+
+pip install -e .
+
+uvicorn ruckus_server.main:app --host 0.0.0.0 --port 8080 --log-config src/ruckus_server/logging.yml --workers 1

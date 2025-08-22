@@ -22,7 +22,6 @@ class ServerSettings(BaseSettings):
     
     # API configuration
     api_prefix: str = Field(default="/api/v1", description="API prefix path")
-    base_router_path: str = Field(default="/api/v1", description="Base router path")
     openapi_prefix: str = Field(default="/api/static", description="OpenAPI static files prefix")
     cors_origins: list = Field(default=["*"], description="CORS allowed origins")
     
