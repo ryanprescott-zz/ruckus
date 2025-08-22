@@ -1,7 +1,10 @@
 """Raw PyTorch adapter."""
 
+import logging
 from typing import Dict, Any, List, Optional
 from .base import ModelAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class PyTorchAdapter(ModelAdapter):
@@ -15,7 +18,7 @@ class PyTorchAdapter(ModelAdapter):
         """Load a PyTorch model."""
         # TODO: Implement PyTorch model loading
         self.model_path = model_name
-        print(f"Loading PyTorch model: {model_name}")
+        logger.info(f"Loading PyTorch model: {model_name}")
 
     async def unload_model(self) -> None:
         """Unload model."""
