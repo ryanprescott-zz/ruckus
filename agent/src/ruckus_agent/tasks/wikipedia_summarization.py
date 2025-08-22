@@ -1,8 +1,11 @@
 """Wikipedia article summarization task."""
 
+import logging
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from .base import BaseTask, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 class WikipediaSummarizationTask(BaseTask):
@@ -26,7 +29,7 @@ class WikipediaSummarizationTask(BaseTask):
                 # TODO: Load articles
                 pass
 
-        print(f"Loaded {len(self.articles)} articles for summarization")
+        logger.info(f"Loaded {len(self.articles)} articles for summarization")
 
     async def run(self, model_adapter, parameters: Dict[str, Any]) -> TaskResult:
         """Run summarization task."""
