@@ -1,7 +1,10 @@
 """Hugging Face Transformers adapter."""
 
+import logging
 from typing import Dict, Any, List, Optional
 from .base import ModelAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class TransformersAdapter(ModelAdapter):
@@ -17,7 +20,7 @@ class TransformersAdapter(ModelAdapter):
         """Load a transformers model."""
         # TODO: Implement model loading
         self.model_name = model_name
-        print(f"Loading model: {model_name}")
+        logger.info(f"Loading model: {model_name}")
 
     async def unload_model(self) -> None:
         """Unload the current model."""
