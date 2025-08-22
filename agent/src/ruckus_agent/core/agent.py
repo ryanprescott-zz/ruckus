@@ -2,6 +2,7 @@
 
 import asyncio
 import httpx
+import logging
 import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -11,6 +12,8 @@ from .config import Settings
 from .models import AgentRegistration, AgentStatus
 from .detector import AgentDetector
 from .storage import AgentStorage, InMemoryStorage
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -40,7 +43,7 @@ class Agent:
 
     async def start(self):
         """Start the agent."""
-        print(f"Starting agent {self.agent_id}")
+        logger.info(f"Starting agent {self.agent_id}")
 
         # Detect capabilities
         await self._detect_capabilities()
@@ -55,7 +58,7 @@ class Agent:
 
     async def stop(self):
         """Stop the agent."""
-        print(f"Stopping agent {self.agent_id}")
+        logger.info(f"Stopping agent {self.agent_id}")
 
         # Cancel background tasks
         for task in self.tasks:
@@ -91,7 +94,7 @@ class Agent:
         }
         await self.storage.store_capabilities(capabilities)
         
-        print(f"Agent {self.agent_id} ({self.agent_name}) capabilities detected")
+        logger.info(f"Agent {self.agent_id} ({self.agent_name}) capabilities detected")
 
     async def _register(self):
         """Register with orchestrator."""
@@ -109,9 +112,9 @@ class Agent:
             )
             if response.status_code == 200:
                 self.registered = True
-                print(f"Registered with orchestrator")
+                logger.info("Registered with orchestrator")
         except Exception as e:
-            print(f"Failed to register: {e}")
+            logger.error(f"Failed to register: {e}")
 
     async def _heartbeat_loop(self):
         """Send periodic heartbeats to orchestrator."""
@@ -128,7 +131,7 @@ class Agent:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Heartbeat error: {e}")
+                logger.error(f"Heartbeat error: {e}")
 
     async def _job_executor(self):
         """Execute jobs from queue."""
@@ -139,11 +142,11 @@ class Agent:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Job execution error: {e}")
+                logger.error(f"Job execution error: {e}")
 
     async def _execute_job(self, job: JobRequest):
         """Execute a single job."""
-        print(f"Executing job {job.job_id}")
+        logger.info(f"Executing job {job.job_id}")
         # TODO: Implement actual job execution
 
         # Update status
@@ -163,7 +166,7 @@ class Agent:
                     json=update.dict(),
                 )
             except Exception as e:
-                print(f"Failed to send update: {e}")
+                logger.error(f"Failed to send update: {e}")
     
     async def get_capabilities(self) -> Dict:
         """Get agent capabilities."""
