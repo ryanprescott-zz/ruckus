@@ -1,0 +1,46 @@
+name: ruckus-agent
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - fastapi
+  - uvicorn[standard]
+  - pydantic
+  - pydantic-settings
+  - aiohttp
+  - requests
+  - psutil
+  - GPUtil
+  - torch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - transformers
+  - tokenizers
+  - datasets
+  - accelerate
+  - bitsandbytes
+  - scipy
+  - numpy
+  - pandas
+  - scikit-learn
+  - nltk
+  - rouge-score
+  - sacrebleu
+  - pytest
+  - pytest-asyncio
+  - pytest-cov
+  - black
+  - isort
+  - mypy
+  - flake8
+  - pip:
+    - vllm
+    - pynvml
+    - -e ../common
+    - -e .
+prefix: ruckus-agent
