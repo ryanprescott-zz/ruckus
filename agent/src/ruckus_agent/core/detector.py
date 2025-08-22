@@ -1,5 +1,6 @@
 """System capability detection."""
 
+import logging
 import platform
 import subprocess
 import json
@@ -11,6 +12,8 @@ from .models import (
     FrameworkInfo, ModelInfo, HookInfo,
     MetricCapability
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AgentDetector:
