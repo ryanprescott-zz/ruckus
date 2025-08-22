@@ -1,6 +1,7 @@
 """Main entry point for RUCKUS agent."""
 
 import asyncio
+import logging
 import uvicorn
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
@@ -9,6 +10,8 @@ from .api.v1.api import router as api_router
 from .core.config import settings
 from .core.agent import Agent
 from . import __version__
+
+logger = logging.getLogger(__name__)
 
 
 # Global agent instance
@@ -21,7 +24,7 @@ async def lifespan(app: FastAPI):
     global agent
 
     # Startup
-    print(f"Starting RUCKUS Agent v{__version__}")
+    logger.info(f"Starting RUCKUS Agent v{__version__}")
     agent = Agent(settings)
     await agent.start()
     app.state.agent = agent
@@ -29,7 +32,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    print("Shutting down RUCKUS Agent")
+    logger.info("Shutting down RUCKUS Agent")
     await agent.stop()
 
 
