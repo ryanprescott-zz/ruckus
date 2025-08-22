@@ -1,7 +1,10 @@
 """vLLM adapter for high-performance inference."""
 
+import logging
 from typing import Dict, Any, List, Optional
 from .base import ModelAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class VLLMAdapter(ModelAdapter):
@@ -15,7 +18,7 @@ class VLLMAdapter(ModelAdapter):
         """Load a model with vLLM."""
         # TODO: Implement vLLM model loading
         self.model_name = model_name
-        print(f"Loading vLLM model: {model_name}")
+        logger.info(f"Loading vLLM model: {model_name}")
 
     async def unload_model(self) -> None:
         """Unload the current model."""
