@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     port: int = 8081
     debug: bool = False
 
+    # API configuration
+    api_prefix: str = Field(default="/api/v1", description="API prefix path")
+    openapi_prefix: str = Field(default="/api/static", description="OpenAPI static files prefix")
+    cors_origins: list = Field(default=["*"], description="CORS allowed origins")
+
     # Orchestrator
     orchestrator_url: Optional[str] = None
     heartbeat_interval: int = 30
