@@ -13,26 +13,48 @@ class PyTorchAdapter(ModelAdapter):
     def __init__(self):
         self.model = None
         self.model_path = None
+        logger.info("PyTorchAdapter initialized")
 
     async def load_model(self, model_name: str, **kwargs) -> None:
         """Load a PyTorch model."""
-        # TODO: Implement PyTorch model loading
-        self.model_path = model_name
-        logger.info(f"Loading PyTorch model: {model_name}")
+        logger.info(f"PyTorchAdapter loading model: {model_name}")
+        try:
+            # TODO: Implement PyTorch model loading
+            self.model_path = model_name
+            logger.info(f"PyTorchAdapter model loaded successfully: {model_name}")
+        except Exception as e:
+            logger.error(f"PyTorchAdapter failed to load model {model_name}: {e}")
+            raise
 
     async def unload_model(self) -> None:
         """Unload model."""
+        logger.info(f"PyTorchAdapter unloading model: {self.model_path}")
         self.model = None
         self.model_path = None
+        logger.info("PyTorchAdapter model unloaded")
 
     async def generate(self, prompt: str, parameters: Dict[str, Any]) -> str:
         """Generate with PyTorch."""
-        # TODO: Implement generation
-        return f"PyTorch output for: {prompt[:50]}..."
+        logger.debug(f"PyTorchAdapter generating for prompt length: {len(prompt)}")
+        try:
+            # TODO: Implement generation
+            result = f"PyTorch output for: {prompt[:50]}..."
+            logger.debug(f"PyTorchAdapter generated output length: {len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"PyTorchAdapter generation failed: {e}")
+            raise
 
     async def generate_batch(self, prompts: List[str], parameters: Dict[str, Any]) -> List[str]:
         """Batch generation."""
-        return [await self.generate(p, parameters) for p in prompts]
+        logger.info(f"PyTorchAdapter batch generation for {len(prompts)} prompts")
+        try:
+            results = [await self.generate(p, parameters) for p in prompts]
+            logger.info(f"PyTorchAdapter batch generation completed: {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"PyTorchAdapter batch generation failed: {e}")
+            raise
 
     async def tokenize(self, text: str) -> List[int]:
         """Tokenize (if tokenizer available)."""

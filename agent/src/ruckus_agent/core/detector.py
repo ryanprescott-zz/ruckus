@@ -18,31 +18,45 @@ class AgentDetector:
 
     async def detect_all(self) -> Dict[str, Any]:
         """Detect all capabilities."""
-        return {
-            "system": await self.detect_system(),
-            "cpu": await self.detect_cpu(),
-            "gpus": await self.detect_gpus(),
-            "frameworks": await self.detect_frameworks(),
-            "models": await self.detect_models(),
-            "hooks": await self.detect_hooks(),
-            "metrics": await self.detect_metrics(),
-        }
+        logger.info("AgentDetector starting comprehensive capability detection")
+        try:
+            result = {
+                "system": await self.detect_system(),
+                "cpu": await self.detect_cpu(),
+                "gpus": await self.detect_gpus(),
+                "frameworks": await self.detect_frameworks(),
+                "models": await self.detect_models(),
+                "hooks": await self.detect_hooks(),
+                "metrics": await self.detect_metrics(),
+            }
+            logger.info("AgentDetector capability detection completed successfully")
+            return result
+        except Exception as e:
+            logger.error(f"AgentDetector capability detection failed: {e}")
+            raise
 
     async def detect_system(self) -> Dict:
         """Detect system information."""
-        import psutil
+        logger.debug("Detecting system information")
+        try:
+            import psutil
 
-        return {
-            "hostname": platform.node(),
-            "os": platform.system(),
-            "os_version": platform.version(),
-            "kernel": platform.release(),
-            "python_version": platform.python_version(),
-            "total_memory_gb": psutil.virtual_memory().total / (1024**3),
-            "available_memory_gb": psutil.virtual_memory().available / (1024**3),
-            "disk_total_gb": psutil.disk_usage('/').total / (1024**3),
-            "disk_available_gb": psutil.disk_usage('/').free / (1024**3),
-        }
+            result = {
+                "hostname": platform.node(),
+                "os": platform.system(),
+                "os_version": platform.version(),
+                "kernel": platform.release(),
+                "python_version": platform.python_version(),
+                "total_memory_gb": psutil.virtual_memory().total / (1024**3),
+                "available_memory_gb": psutil.virtual_memory().available / (1024**3),
+                "disk_total_gb": psutil.disk_usage('/').total / (1024**3),
+                "disk_available_gb": psutil.disk_usage('/').free / (1024**3),
+            }
+            logger.debug(f"System detected: {result['os']} on {result['hostname']}")
+            return result
+        except Exception as e:
+            logger.error(f"System detection failed: {e}")
+            raise
 
     async def detect_cpu(self) -> Dict:
         """Detect CPU information."""
@@ -88,12 +102,13 @@ class AgentDetector:
 
     async def detect_frameworks(self) -> List[Dict]:
         """Detect available ML frameworks."""
+        logger.debug("Detecting ML frameworks")
         frameworks = []
 
         # Check transformers
         try:
             import transformers
-            frameworks.append({
+            framework_info = {
                 "name": "transformers",
                 "version": transformers.__version__,
                 "available": True,
@@ -101,14 +116,16 @@ class AgentDetector:
                     "text_generation": True,
                     "tokenization": True,
                 }
-            })
+            }
+            frameworks.append(framework_info)
+            logger.debug(f"Transformers detected: {transformers.__version__}")
         except ImportError:
-            pass
+            logger.debug("Transformers not available")
 
         # Check PyTorch
         try:
             import torch
-            frameworks.append({
+            framework_info = {
                 "name": "pytorch",
                 "version": torch.__version__,
                 "available": True,
@@ -116,14 +133,16 @@ class AgentDetector:
                     "cuda": torch.cuda.is_available(),
                     "mps": torch.backends.mps.is_available() if hasattr(torch.backends, 'mps') else False,
                 }
-            })
+            }
+            frameworks.append(framework_info)
+            logger.debug(f"PyTorch detected: {torch.__version__}, CUDA: {torch.cuda.is_available()}")
         except ImportError:
-            pass
+            logger.debug("PyTorch not available")
 
         # Check vLLM
         try:
             import vllm
-            frameworks.append({
+            framework_info = {
                 "name": "vllm",
                 "version": vllm.__version__,
                 "available": True,
@@ -131,23 +150,29 @@ class AgentDetector:
                     "streaming": True,
                     "continuous_batching": True,
                 }
-            })
+            }
+            frameworks.append(framework_info)
+            logger.debug(f"vLLM detected: {vllm.__version__}")
         except ImportError:
-            pass
+            logger.debug("vLLM not available")
 
+        logger.info(f"Detected {len(frameworks)} ML frameworks")
         return frameworks
 
     async def detect_models(self, search_paths: List[str] = None) -> List[Dict]:
         """Detect available models."""
         if search_paths is None:
             search_paths = ["/models", "./models", "~/.cache/huggingface"]
-
+        
+        logger.debug(f"Detecting models in paths: {search_paths}")
         models = []
         # TODO: Implement model detection
+        logger.debug(f"Model detection completed: {len(models)} models found")
         return models
 
     async def detect_hooks(self) -> List[Dict]:
         """Detect available system hooks."""
+        logger.debug("Detecting system monitoring hooks")
         hooks = []
 
         tools = [
@@ -165,23 +190,27 @@ class AgentDetector:
                     timeout=1,
                 )
                 if result.returncode == 0:
-                    hooks.append({
+                    hook_info = {
                         "name": tool,
                         "type": tool_type,
                         "executable_path": result.stdout.decode().strip(),
                         "working": True,
-                    })
-            except Exception:
-                pass
+                    }
+                    hooks.append(hook_info)
+                    logger.debug(f"Hook detected: {tool} at {hook_info['executable_path']}")
+            except Exception as e:
+                logger.debug(f"Hook detection failed for {tool}: {e}")
 
+        logger.info(f"Detected {len(hooks)} system hooks")
         return hooks
 
     async def detect_metrics(self) -> List[Dict]:
         """Detect available metrics."""
+        logger.debug("Detecting available metrics")
         metrics = []
 
         # Basic metrics always available
-        metrics.extend([
+        basic_metrics = [
             {
                 "name": "latency",
                 "type": "performance",
@@ -196,11 +225,14 @@ class AgentDetector:
                 "collection_method": "calculation",
                 "requires": [],
             },
-        ])
+        ]
+        metrics.extend(basic_metrics)
+        logger.debug(f"Added {len(basic_metrics)} basic metrics")
 
         # GPU metrics if available
-        if await self.detect_gpus():
-            metrics.extend([
+        gpus = await self.detect_gpus()
+        if gpus:
+            gpu_metrics = [
                 {
                     "name": "gpu_utilization",
                     "type": "resource",
@@ -215,6 +247,9 @@ class AgentDetector:
                     "collection_method": "nvidia-smi",
                     "requires": ["nvidia-smi"],
                 },
-            ])
+            ]
+            metrics.extend(gpu_metrics)
+            logger.debug(f"Added {len(gpu_metrics)} GPU metrics for {len(gpus)} GPUs")
 
+        logger.info(f"Detected {len(metrics)} available metrics")
         return metrics

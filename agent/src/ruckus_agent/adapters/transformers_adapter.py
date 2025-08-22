@@ -15,28 +15,50 @@ class TransformersAdapter(ModelAdapter):
         self.tokenizer = None
         self.model_name = None
         self.device = None
+        logger.info("TransformersAdapter initialized")
 
     async def load_model(self, model_name: str, **kwargs) -> None:
         """Load a transformers model."""
-        # TODO: Implement model loading
-        self.model_name = model_name
-        logger.info(f"Loading model: {model_name}")
+        logger.info(f"TransformersAdapter loading model: {model_name}")
+        try:
+            # TODO: Implement model loading
+            self.model_name = model_name
+            logger.info(f"TransformersAdapter model loaded successfully: {model_name}")
+        except Exception as e:
+            logger.error(f"TransformersAdapter failed to load model {model_name}: {e}")
+            raise
 
     async def unload_model(self) -> None:
         """Unload the current model."""
+        logger.info(f"TransformersAdapter unloading model: {self.model_name}")
         self.model = None
         self.tokenizer = None
         self.model_name = None
+        logger.info("TransformersAdapter model unloaded")
 
     async def generate(self, prompt: str, parameters: Dict[str, Any]) -> str:
         """Generate output from prompt."""
-        # TODO: Implement generation
-        return f"Generated output for: {prompt[:50]}..."
+        logger.debug(f"TransformersAdapter generating for prompt length: {len(prompt)}")
+        try:
+            # TODO: Implement generation
+            result = f"Generated output for: {prompt[:50]}..."
+            logger.debug(f"TransformersAdapter generated output length: {len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"TransformersAdapter generation failed: {e}")
+            raise
 
     async def generate_batch(self, prompts: List[str], parameters: Dict[str, Any]) -> List[str]:
         """Generate outputs for multiple prompts."""
-        # TODO: Implement batch generation
-        return [await self.generate(p, parameters) for p in prompts]
+        logger.info(f"TransformersAdapter batch generation for {len(prompts)} prompts")
+        try:
+            # TODO: Implement batch generation
+            results = [await self.generate(p, parameters) for p in prompts]
+            logger.info(f"TransformersAdapter batch generation completed: {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"TransformersAdapter batch generation failed: {e}")
+            raise
 
     async def tokenize(self, text: str) -> List[int]:
         """Tokenize text."""

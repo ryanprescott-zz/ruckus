@@ -13,27 +13,49 @@ class VLLMAdapter(ModelAdapter):
     def __init__(self):
         self.engine = None
         self.model_name = None
+        logger.info("VLLMAdapter initialized")
 
     async def load_model(self, model_name: str, **kwargs) -> None:
         """Load a model with vLLM."""
-        # TODO: Implement vLLM model loading
-        self.model_name = model_name
-        logger.info(f"Loading vLLM model: {model_name}")
+        logger.info(f"VLLMAdapter loading model: {model_name}")
+        try:
+            # TODO: Implement vLLM model loading
+            self.model_name = model_name
+            logger.info(f"VLLMAdapter model loaded successfully: {model_name}")
+        except Exception as e:
+            logger.error(f"VLLMAdapter failed to load model {model_name}: {e}")
+            raise
 
     async def unload_model(self) -> None:
         """Unload the current model."""
+        logger.info(f"VLLMAdapter unloading model: {self.model_name}")
         self.engine = None
         self.model_name = None
+        logger.info("VLLMAdapter model unloaded")
 
     async def generate(self, prompt: str, parameters: Dict[str, Any]) -> str:
         """Generate with vLLM."""
-        # TODO: Implement vLLM generation
-        return f"vLLM output for: {prompt[:50]}..."
+        logger.debug(f"VLLMAdapter generating for prompt length: {len(prompt)}")
+        try:
+            # TODO: Implement vLLM generation
+            result = f"vLLM output for: {prompt[:50]}..."
+            logger.debug(f"VLLMAdapter generated output length: {len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"VLLMAdapter generation failed: {e}")
+            raise
 
     async def generate_batch(self, prompts: List[str], parameters: Dict[str, Any]) -> List[str]:
         """Batch generation with vLLM."""
-        # TODO: Implement vLLM batch generation
-        return [await self.generate(p, parameters) for p in prompts]
+        logger.info(f"VLLMAdapter batch generation for {len(prompts)} prompts")
+        try:
+            # TODO: Implement vLLM batch generation
+            results = [await self.generate(p, parameters) for p in prompts]
+            logger.info(f"VLLMAdapter batch generation completed: {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"VLLMAdapter batch generation failed: {e}")
+            raise
 
     async def tokenize(self, text: str) -> List[int]:
         """Tokenize text."""
