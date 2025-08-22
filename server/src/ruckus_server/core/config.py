@@ -58,7 +58,7 @@ class SQLiteSettings(BaseSettings):
     """SQLite storage backend settings."""
     
     database_path: str = Field(
-        default="data/ruckus.db",
+        default="datastore/ruckus.db",
         description="Path to SQLite database file"
     )
     database_url: str = Field(

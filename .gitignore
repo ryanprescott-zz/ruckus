@@ -25,4 +25,4 @@ MANIFEST
 logs/
 
 # Server data directory
-server/data/
+server/datastore/
