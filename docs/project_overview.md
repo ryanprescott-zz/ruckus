@@ -5,7 +5,7 @@ The ruckus project includes four subprojects: 1. The *ruckus server* manages exp
 
 # Core System Components
 ## Ruckus server
-The ruckus server will be the central brain of RUCKUS, responsible for managing experiments, coordinating agents, scheduling jobs, and aggregating results. It will expose a REST API for experiment creation and management, provide polling endpoints for status updates, and maintain all system state in a SQLite database. The ruckus server will handle ruckus agent registration and health monitoring, job distribution based on ruckus agent capabilities, and result normalization across different ruckus agent types.
+The ruckus server will be the central brain of RUCKUS, responsible for managing experiments, coordinating agents, scheduling jobs, and aggregating results. It will expose a REST API for experiment creation and management, provide polling endpoints for status updates, and maintain all system state in a Postgres database. The ruckus server will handle ruckus agent registration and health monitoring, job distribution based on ruckus agent capabilities, and result normalization across different ruckus agent types.
 
 The ruckus server will store experiment definitions, jobs & job status, and experiment results. The server will store data using a postgres database. The database Schema will include tables for experiments (storing configuration and status), jobs (tracking individual benchmark runs), agents (registration and capabilities), and results (metrics and outputs). We'll use SQLite with SQLAlchemy for the ORM, with indexes optimized for polling queries.
 

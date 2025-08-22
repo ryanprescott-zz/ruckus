@@ -71,21 +71,6 @@ app.include_router(api_router, prefix=settings.server.api_prefix, tags=["API"])
 app.mount(settings.server.openapi_prefix, StaticFiles(directory="static"), name="static")
 
 
-@app.get("/")
-def read_root():
-    """
-    Root endpoint providing basic API information.
-    
-    Returns:
-        dict: Basic API information and status
-    """
-    return {
-        "message": "Ruckus server app",
-        "version": "1.0.0",
-        "status": "running"
-    }
-
-
 @app.get("/health")
 def health_check():
     """
@@ -134,17 +119,3 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all methods
     allow_headers=["*"],  # Allow all headers
 )
-
-
-# def main():
-#     """Run the server."""
-#     uvicorn.run(
-#         "ruckus_server.main:app",
-#         host=settings.server.host,
-#         port=settings.server.port,
-#         reload=settings.server.debug,
-#     )
-
-
-# if __name__ == "__main__":
-#     main()
