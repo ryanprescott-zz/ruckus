@@ -15,15 +15,15 @@ dependencies:
   - requests
   - psutil
   - GPUtil
-  - torch
+  - pytorch
   - torchvision
   - torchaudio
-  - pytorch-cuda=12.1
+  #- pytorch-cuda
   - transformers
   - tokenizers
   - datasets
   - accelerate
-  - bitsandbytes
+  #- bitsandbytes
   - scipy
   - numpy
   - pandas
