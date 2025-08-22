@@ -23,3 +23,6 @@ MANIFEST
 
 # Log files
 logs/
+
+# Server data directory
+server/data/
