@@ -157,6 +157,21 @@ class SQLiteStorageBackend(StorageBackend):
             self.logger.error(f"Failed to update agent {agent_id} heartbeat: {e}")
             return False
     
+    async def agent_exists(self, agent_id: str) -> bool:
+        """Check if an agent exists by ID."""
+        async def _exists():
+            async with self.session_factory() as session:
+                stmt = select(Agent).where(Agent.id == agent_id)
+                result = await session.execute(stmt)
+                agent = result.scalar_one_or_none()
+                return agent is not None
+        
+        try:
+            return await self._retry_operation(_exists)
+        except Exception as e:
+            self.logger.error(f"Failed to check if agent {agent_id} exists: {e}")
+            return False
+    
     async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Get agent by ID."""
         async def _get():
@@ -168,9 +183,15 @@ class SQLiteStorageBackend(StorageBackend):
                 if agent:
                     return {
                         "id": agent.id,
+                        "agent_name": agent.agent_name,
+                        "agent_type": agent.agent_type,
+                        "agent_url": agent.agent_url,
+                        "system_info": agent.system_info,
                         "capabilities": agent.capabilities,
                         "status": agent.status,
                         "last_heartbeat": agent.last_heartbeat,
+                        "last_updated": agent.last_updated,
+                        "registered_at": agent.registered_at,
                         "created_at": agent.created_at,
                         "updated_at": agent.updated_at
                     }

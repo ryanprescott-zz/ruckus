@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 from urllib.parse import urlparse
 import re
 
-from ...core.models import RegisteredAgentInfo
+from datetime import datetime
 
 
 class RegisterAgentRequest(BaseModel):
@@ -48,4 +48,18 @@ class RegisterAgentRequest(BaseModel):
 class RegisterAgentResponse(BaseModel):
     """Response model for agent registration."""
     
-    agent_info: RegisteredAgentInfo = Field(..., description="Registered agent information")
+    agent_id: str = Field(..., description="ID of the registered agent")
+    registered_at: datetime = Field(..., description="Timestamp when the agent was registered")
+
+
+class UnregisterAgentRequest(BaseModel):
+    """Request model for unregistering an agent."""
+    
+    agent_id: str = Field(..., description="ID of the agent to unregister", min_length=1)
+
+
+class UnregisterAgentResponse(BaseModel):
+    """Response model for agent unregistration."""
+    
+    agent_id: str = Field(..., description="ID of the unregistered agent")
+    unregistered_at: datetime = Field(..., description="Timestamp when the agent was unregistered")

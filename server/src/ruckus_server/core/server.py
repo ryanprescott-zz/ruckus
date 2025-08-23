@@ -16,6 +16,23 @@ from .agent import AgentProtocolUtility
 from .clients.http import ConnectionError, ServiceUnavailableError
 
 
+class AgentAlreadyRegisteredException(Exception):
+    """Exception raised when attempting to register an agent that is already registered."""
+    
+    def __init__(self, agent_id: str, registered_at: str):
+        self.agent_id = agent_id
+        self.registered_at = registered_at
+        super().__init__(f"Agent {agent_id} is already registered (registered at {registered_at})")
+
+
+class AgentNotRegisteredException(Exception):
+    """Exception raised when attempting to unregister an agent that is not registered."""
+    
+    def __init__(self, agent_id: str):
+        self.agent_id = agent_id
+        super().__init__(f"Agent {agent_id} is not registered")
+
+
 class RuckusServer:
     """RUCKUS server implementation.
     
@@ -141,14 +158,14 @@ class RuckusServer:
         # TODO: Implement graceful shutdown of background tasks
         pass
     
-    async def register_agent(self, agent_url: str) -> RegisteredAgentInfo:
+    async def register_agent(self, agent_url: str) -> dict:
         """Register a new agent with the server.
         
         Args:
             agent_url: Base URL of the agent to register
             
         Returns:
-            RegisteredAgentInfo object with agent details
+            Dict with agent_id and registered_at timestamp
             
         Raises:
             ConnectionError: If cannot connect to agent
@@ -171,6 +188,18 @@ class RuckusServer:
             # Get agent info from the agent's /info endpoint
             agent_info_response = await agent_util.get_agent_info(agent_url)
             
+            # Check if agent is already registered
+            agent_id = agent_info_response.agent_info.agent_id
+            existing_agent = await self.storage.get_agent(agent_id)
+            if existing_agent:
+                # Agent already exists, raise conflict exception
+                registered_at = existing_agent.get('registered_at')
+                registered_at_str = registered_at.isoformat() if registered_at else 'unknown'
+                raise AgentAlreadyRegisteredException(
+                    agent_id=agent_id,
+                    registered_at=registered_at_str
+                )
+            
             # Create RegisteredAgentInfo object
             registered_info = agent_util.create_registered_agent_info(
                 agent_info_response, 
@@ -184,7 +213,10 @@ class RuckusServer:
                 raise RuntimeError("Failed to store agent information in database")
             
             self.logger.info(f"Agent {registered_info.agent_info.agent_id} registered successfully")
-            return registered_info
+            return {
+                "agent_id": registered_info.agent_info.agent_id,
+                "registered_at": registered_info.registered_at
+            }
             
         except ConnectionError as e:
             self.logger.error(f"Failed to connect to agent at {agent_url}: {str(e)}")
@@ -195,6 +227,52 @@ class RuckusServer:
         except Exception as e:
             self.logger.error(f"Unexpected error registering agent at {agent_url}: {str(e)}")
             raise ValueError(f"Failed to register agent: {str(e)}")
+    
+    async def unregister_agent(self, agent_id: str) -> dict:
+        """Unregister an agent from the server.
+        
+        Args:
+            agent_id: ID of the agent to unregister
+            
+        Returns:
+            Dict with agent_id and unregistered_at timestamp
+            
+        Raises:
+            AgentNotRegisteredException: If agent is not registered
+            RuntimeError: If storage backend not initialized
+        """
+        self.logger.info(f"Unregistering agent {agent_id}")
+        
+        if not self.storage:
+            raise RuntimeError("Storage backend not initialized")
+        
+        try:
+            # Check if agent exists
+            agent_exists = await self.storage.agent_exists(agent_id)
+            if not agent_exists:
+                self.logger.warning(f"Attempted to unregister non-existent agent {agent_id}")
+                raise AgentNotRegisteredException(agent_id)
+            
+            # Remove agent from database
+            success = await self.storage.remove_agent(agent_id)
+            
+            if not success:
+                raise RuntimeError("Failed to remove agent from database")
+            
+            from datetime import datetime
+            unregistered_at = datetime.utcnow()
+            
+            self.logger.info(f"Agent {agent_id} unregistered successfully")
+            return {
+                "agent_id": agent_id,
+                "unregistered_at": unregistered_at
+            }
+            
+        except AgentNotRegisteredException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error unregistering agent {agent_id}: {str(e)}")
+            raise RuntimeError(f"Failed to unregister agent: {str(e)}")
     
     async def schedule_job(self, experiment_id: str, job_config: dict) -> Optional[str]:
         """Schedule a job for execution on an appropriate agent.

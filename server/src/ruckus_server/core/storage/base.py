@@ -108,6 +108,18 @@ class StorageBackend(ABC):
         pass
     
     @abstractmethod
+    async def agent_exists(self, agent_id: str) -> bool:
+        """Check if an agent exists by ID.
+        
+        Args:
+            agent_id: ID of the agent to check
+            
+        Returns:
+            True if agent exists, False otherwise
+        """
+        pass
+    
+    @abstractmethod
     async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Get agent by ID."""
         pass
