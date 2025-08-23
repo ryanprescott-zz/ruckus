@@ -6,13 +6,7 @@ from typing import Optional
 from enum import Enum
 
 
-class StorageBackendType(str, Enum):
-    """Supported storage backend types."""
-    POSTGRESQL = "postgresql"
-    SQLITE = "sqlite"
-
-
-class ServerSettings(BaseSettings):
+class AppSettings(BaseSettings):
     """Server configuration settings."""
     
     host: str = Field(default="0.0.0.0", description="Server host address")
@@ -33,6 +27,7 @@ class ServerSettings(BaseSettings):
         env_prefix = "RUCKUS_SERVER_"
         env_file = ".env"
         case_sensitive = False
+
 
 
 class PostgreSQLSettings(BaseSettings):
@@ -71,6 +66,42 @@ class SQLiteSettings(BaseSettings):
     
     class Config:
         env_prefix = "RUCKUS_SQLITE_"
+        env_file = ".env"
+        case_sensitive = False
+
+
+class StorageBackendType(str, Enum):
+    """Supported storage backend types."""
+    POSTGRESQL = "postgresql"
+    SQLITE = "sqlite"
+
+
+class RuckusServerSettings(BaseSettings):
+    """RuckusServer configuration settings containing everything it needs."""
+    
+    host: str = Field(default="0.0.0.0", description="Server host address")
+    port: int = Field(default=8000, description="Server port")
+    debug: bool = Field(default=False, description="Enable debug mode")
+    
+    # Storage backend configuration
+    storage_backend: StorageBackendType = Field(
+        default=StorageBackendType.SQLITE,
+        description="Storage backend type"
+    )
+    
+    # Logging configuration
+    log_level: str = Field(default="INFO", description="Logging level")
+    log_config_file: str = Field(
+        default="logging.yml",
+        description="Path to logging configuration file"
+    )
+    
+    # Storage backend settings
+    postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
+    sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
+    
+    class Config:
+        env_prefix = "RUCKUS_SERVER_"
         env_file = ".env"
         case_sensitive = False
 
@@ -140,14 +171,9 @@ class LoggingSettings(BaseSettings):
 class Settings(BaseSettings):
     """Main server settings that combines all configuration sections."""
     
-    # Storage backend configuration
-    storage_backend: StorageBackendType = Field(
-        default=StorageBackendType.SQLITE,
-        description="Storage backend type"
-    )
-    
     # Nested settings
-    server: ServerSettings = Field(default_factory=ServerSettings)
+    app: AppSettings = Field(default_factory=AppSettings)
+    ruckus_server: RuckusServerSettings = Field(default_factory=RuckusServerSettings)
     postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
     sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)

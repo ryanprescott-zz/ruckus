@@ -15,46 +15,33 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .api.v1.api import api_router
-from .core.config import Settings, StorageBackendType
-from .core.storage.postgresql import PostgreSQLStorageBackend
-from .core.storage.sqlite import SQLiteStorageBackend
+from .core.config import Settings
+from .core.server import RuckusServer
 
 logger = logging.getLogger(__name__)
 
-# Global storage backend instance
-storage_backend = None
 settings = Settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
-    global storage_backend
-    global settings
-    
     # Startup
     logger.info(f"Starting RUCKUS Server v{__version__}")
     
-    # Initialize storage backend based on settings
-    if settings.storage_backend == StorageBackendType.POSTGRESQL:
-        storage_backend = PostgreSQLStorageBackend(settings.postgresql)
-    elif settings.storage_backend == StorageBackendType.SQLITE:
-        storage_backend = SQLiteStorageBackend(settings.sqlite)
-    else:
-        raise ValueError(f"Unsupported storage backend: {settings.storage_backend}")
+    # Initialize RuckusServer with settings
+    ruckus_server = RuckusServer(settings.ruckus_server)
+    await ruckus_server.start()
     
-    await storage_backend.initialize()
-    logger.info(f"Initialized {settings.storage_backend} storage backend")
-    
-    # Make storage backend available to the app
-    app.state.storage = storage_backend
+    # Make server available to the app
+    app.state.server = ruckus_server
     
     yield
     
     # Shutdown
     logger.info("Shutting down RUCKUS Server")
-    if storage_backend:
-        await storage_backend.close()
+    if hasattr(app.state, 'server') and app.state.server:
+        await app.state.server.stop()
 
 
 app = FastAPI(
@@ -65,24 +52,26 @@ app = FastAPI(
 )
 
 # Include API router
-app.include_router(api_router, prefix=settings.server.api_prefix, tags=["API"])
+app.include_router(api_router, prefix=settings.app.api_prefix, tags=["API"])
 
 # Mount /static to serve self-hosted swagger UI assets
-app.mount(settings.server.openapi_prefix, StaticFiles(directory="static"), name="static")
+app.mount(settings.app.openapi_prefix, StaticFiles(directory="static"), name="static")
 
 
 @app.get("/health")
-def health_check():
+async def health_check():
     """
     Health check endpoint for monitoring and load balancers.
     
     Returns:
         dict: Health status information
     """
-    return {"status": "healthy"}
+    if hasattr(app.state, 'server') and app.state.server:
+        return await app.state.server.health_check()
+    return {"status": "unhealthy", "reason": "server_not_initialized"}
 
 
-@app.get(f"{settings.server.api_prefix}/docs", include_in_schema=False)
+@app.get(f"{settings.app.api_prefix}/docs", include_in_schema=False)
 async def self_hosted_swagger_ui_html():
     """
     Serve the self-hosted Swagger UI HTML.
@@ -95,8 +84,8 @@ async def self_hosted_swagger_ui_html():
         title=app.title,
         swagger_favicon_url="/icons/favicon.ico",
         oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
-        swagger_js_url=f"{settings.server.openapi_prefix}/swagger-ui-bundle.js",
-        swagger_css_url=f"{settings.server.openapi_prefix}/swagger-ui.css",
+        swagger_js_url=f"{settings.app.openapi_prefix}/swagger-ui-bundle.js",
+        swagger_css_url=f"{settings.app.openapi_prefix}/swagger-ui.css",
     )
 
 

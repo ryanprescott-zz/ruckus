@@ -7,9 +7,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
-from fastapi import FastAPI
 
-from .settings.settings import RuckusServerSettings, PostgresStorageSettings, SQLiteStorageSettings, StorageBackendType
+from .config import RuckusServerSettings, StorageBackendType
 from .storage.factory import StorageFactory
 from .storage.base import StorageBackend
 
@@ -29,7 +28,6 @@ class RuckusServer:
         """
         self.settings = settings or RuckusServerSettings()
         self.logger = self._setup_logging()
-        self.app: Optional[FastAPI] = None
         self.storage: Optional[StorageBackend] = None
         
         self.logger.info("RUCKUS server initialized")
@@ -67,40 +65,27 @@ class RuckusServer:
         return logging.getLogger(__name__)
     
     async def start(self) -> None:
-        """Start the RUCKUS server.
+        """Start the RUCKUS server backend.
         
-        Initializes the database connection, sets up the FastAPI app,
-        and starts background tasks for agent monitoring and job scheduling.
+        Initializes the database connection and starts background tasks
+        for agent monitoring and job scheduling.
         """
-        self.logger.info("Starting RUCKUS server...")
-        
-        # Initialize FastAPI app
-        self.app = FastAPI(
-            title="RUCKUS Server",
-            description="Distributed benchmarking and evaluation system",
-            version="0.1.0",
-            debug=self.settings.debug
-        )
+        self.logger.info("Starting RUCKUS server backend...")
         
         # Setup database connection
         await self._setup_database()
         
-        # Setup API routes
-        self._setup_routes()
-        
         # Start background tasks
         await self._start_background_tasks()
         
-        self.logger.info(
-            f"RUCKUS server started on {self.settings.host}:{self.settings.port}"
-        )
+        self.logger.info("RUCKUS server backend started")
     
     async def stop(self) -> None:
-        """Stop the RUCKUS server.
+        """Stop the RUCKUS server backend.
         
         Gracefully shuts down background tasks and closes database connections.
         """
-        self.logger.info("Stopping RUCKUS server...")
+        self.logger.info("Stopping RUCKUS server backend...")
         
         # Stop background tasks
         await self._stop_background_tasks()
@@ -108,23 +93,21 @@ class RuckusServer:
         # Close database connections
         await self._cleanup_database()
         
-        self.logger.info("RUCKUS server stopped")
+        self.logger.info("RUCKUS server backend stopped")
     
     async def _setup_database(self) -> None:
         """Setup database connection and initialize schema."""
         self.logger.info("Setting up storage backend...")
         
-        # Create storage backend based on configuration
+        # Import storage backends
+        from .storage.postgresql import PostgreSQLStorageBackend
+        from .storage.sqlite import SQLiteStorageBackend
+        
+        # Create storage backend based on configuration using the embedded settings
         if self.settings.storage_backend == StorageBackendType.POSTGRESQL:
-            postgres_settings = PostgresStorageSettings()
-            self.storage = StorageFactory.create_storage_backend(
-                StorageBackendType.POSTGRESQL, postgres_settings
-            )
+            self.storage = PostgreSQLStorageBackend(self.settings.postgresql)
         elif self.settings.storage_backend == StorageBackendType.SQLITE:
-            sqlite_settings = SQLiteStorageSettings()
-            self.storage = StorageFactory.create_storage_backend(
-                StorageBackendType.SQLITE, sqlite_settings
-            )
+            self.storage = SQLiteStorageBackend(self.settings.sqlite)
         else:
             raise ValueError(f"Unsupported storage backend: {self.settings.storage_backend}")
         
@@ -139,33 +122,6 @@ class RuckusServer:
         if self.storage:
             await self.storage.close()
     
-    def _setup_routes(self) -> None:
-        """Setup FastAPI routes for the REST API."""
-        if not self.app:
-            raise RuntimeError("FastAPI app not initialized")
-        
-        self.logger.info("Setting up API routes...")
-        
-        @self.app.get("/")
-        async def root():
-            """Root endpoint."""
-            return {"message": "RUCKUS Server", "version": "0.1.0"}
-        
-        @self.app.get("/health")
-        async def health():
-            """Health check endpoint."""
-            storage_healthy = await self.storage.health_check() if self.storage else False
-            agents = await self.storage.list_agents() if self.storage else []
-            return {
-                "status": "healthy" if storage_healthy else "unhealthy",
-                "storage": "healthy" if storage_healthy else "unhealthy",
-                "agents": len(agents)
-            }
-        
-        # TODO: Add experiment management endpoints
-        # TODO: Add agent management endpoints  
-        # TODO: Add job management endpoints
-        # TODO: Add results endpoints
     
     async def _start_background_tasks(self) -> None:
         """Start background tasks for agent monitoring and job scheduling."""
@@ -267,3 +223,25 @@ class RuckusServer:
             return None
         
         return await self.storage.get_agent(agent_id)
+    
+    async def health_check(self) -> dict:
+        """Check the health of the server and its components.
+        
+        Returns:
+            Health status information including storage and agent count.
+        """
+        if not self.storage:
+            return {
+                "status": "unhealthy",
+                "storage": "not_initialized",
+                "agents": 0
+            }
+        
+        storage_healthy = await self.storage.health_check()
+        agents = await self.storage.list_agents()
+        
+        return {
+            "status": "healthy" if storage_healthy else "unhealthy",
+            "storage": "healthy" if storage_healthy else "unhealthy",
+            "agents": len(agents)
+        }
