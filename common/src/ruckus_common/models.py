@@ -253,6 +253,12 @@ class AgentInfoResponse(BaseModel):
     agent_info: AgentInfo
 
 
+class RegisteredAgentInfo(AgentInfo):
+    """Registered agent information that extends AgentInfo with server-side metadata."""
+    agent_url: str = Field(..., description="Base URL of the registered agent")
+    registered_at: datetime = Field(default_factory=datetime.utcnow, description="When the agent was registered")
+
+
 # Response Models
 class HealthStatus(BaseModel):
     """Health check response."""

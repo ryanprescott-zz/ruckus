@@ -6,7 +6,7 @@ from typing import Dict, Any
 
 from .config import AgentSettings, HttpClientSettings
 from .clients.http import HttpClient, ConnectionError, ServiceUnavailableError
-from .models import RegisteredAgentInfo
+from ruckus_common.models import RegisteredAgentInfo
 from ruckus_common.models import AgentInfoResponse
 
 
@@ -90,10 +90,16 @@ class AgentProtocolUtility:
         Returns:
             RegisteredAgentInfo object ready for storage
         """
+        agent_info = agent_info_response.agent_info
         registered_info = RegisteredAgentInfo(
-            agent_info=agent_info_response.agent_info,
+            agent_id=agent_info.agent_id,
+            agent_name=agent_info.agent_name,
+            agent_type=agent_info.agent_type,
+            system_info=agent_info.system_info,
+            capabilities=agent_info.capabilities,
+            last_updated=agent_info.last_updated,
             agent_url=agent_base_url
         )
         
-        self.logger.debug(f"Created RegisteredAgentInfo for agent {registered_info.agent_info.agent_id}")
+        self.logger.debug(f"Created RegisteredAgentInfo for agent {registered_info.agent_id}")
         return registered_info

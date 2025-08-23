@@ -86,7 +86,7 @@ class StorageBackend(ABC):
     
     # Agent management
     @abstractmethod
-    async def register_agent(self, agent_info: 'RegisteredAgentInfo') -> bool:
+    async def register_agent(self, agent_info) -> bool:
         """Register a new agent with full information.
         
         Args:
@@ -120,13 +120,24 @@ class StorageBackend(ABC):
         pass
     
     @abstractmethod
-    async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """Get agent by ID."""
+    async def get_registered_agent_info(self, agent_id: str):
+        """Get registered agent info by ID.
+        
+        Args:
+            agent_id: ID of the agent to retrieve
+            
+        Returns:
+            RegisteredAgentInfo object or None if not found
+        """
         pass
     
     @abstractmethod
-    async def list_agents(self) -> List[Dict[str, Any]]:
-        """List all agents."""
+    async def list_registered_agent_info(self):
+        """List all registered agent info.
+        
+        Returns:
+            List of RegisteredAgentInfo objects
+        """
         pass
     
     @abstractmethod

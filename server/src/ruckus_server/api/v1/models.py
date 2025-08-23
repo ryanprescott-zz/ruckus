@@ -5,6 +5,8 @@ from urllib.parse import urlparse
 import re
 
 from datetime import datetime
+from typing import List
+from ruckus_common.models import RegisteredAgentInfo
 
 
 class RegisterAgentRequest(BaseModel):
@@ -63,3 +65,15 @@ class UnregisterAgentResponse(BaseModel):
     
     agent_id: str = Field(..., description="ID of the unregistered agent")
     unregistered_at: datetime = Field(..., description="Timestamp when the agent was unregistered")
+
+
+class ListAgentInfoResponse(BaseModel):
+    """Response model for getting all registered agent information."""
+    
+    agents: List[RegisteredAgentInfo] = Field(..., description="List of all registered agents")
+
+
+class GetAgentInfoResponse(BaseModel):
+    """Response model for getting specific agent information."""
+    
+    agent: RegisteredAgentInfo = Field(..., description="Registered agent information")

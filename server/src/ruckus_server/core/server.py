@@ -11,7 +11,7 @@ import yaml
 from .config import RuckusServerSettings, StorageBackendType
 from .storage.factory import StorageFactory
 from .storage.base import StorageBackend
-from .models import RegisteredAgentInfo
+from ruckus_common.models import RegisteredAgentInfo
 from .agent import AgentProtocolUtility
 from .clients.http import ConnectionError, ServiceUnavailableError
 
@@ -190,11 +190,10 @@ class RuckusServer:
             
             # Check if agent is already registered
             agent_id = agent_info_response.agent_info.agent_id
-            existing_agent = await self.storage.get_agent(agent_id)
+            existing_agent = await self.storage.get_registered_agent_info(agent_id)
             if existing_agent:
                 # Agent already exists, raise conflict exception
-                registered_at = existing_agent.get('registered_at')
-                registered_at_str = registered_at.isoformat() if registered_at else 'unknown'
+                registered_at_str = existing_agent.registered_at.isoformat() if existing_agent.registered_at else 'unknown'
                 raise AgentAlreadyRegisteredException(
                     agent_id=agent_id,
                     registered_at=registered_at_str
@@ -212,9 +211,9 @@ class RuckusServer:
             if not success:
                 raise RuntimeError("Failed to store agent information in database")
             
-            self.logger.info(f"Agent {registered_info.agent_info.agent_id} registered successfully")
+            self.logger.info(f"Agent {registered_info.agent_id} registered successfully")
             return {
-                "agent_id": registered_info.agent_info.agent_id,
+                "agent_id": registered_info.agent_id,
                 "registered_at": registered_info.registered_at
             }
             
@@ -274,6 +273,57 @@ class RuckusServer:
             self.logger.error(f"Unexpected error unregistering agent {agent_id}: {str(e)}")
             raise RuntimeError(f"Failed to unregister agent: {str(e)}")
     
+    async def list_registered_agent_info(self) -> List[RegisteredAgentInfo]:
+        """Get all registered agent information.
+        
+        Returns:
+            List of RegisteredAgentInfo objects
+        """
+        self.logger.info("Retrieving all registered agent information")
+        
+        if not self.storage:
+            raise RuntimeError("Storage backend not initialized")
+        
+        try:
+            agents = await self.storage.list_registered_agent_info()
+            self.logger.info(f"Retrieved {len(agents)} registered agents")
+            return agents
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve registered agent info: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve agent information: {str(e)}")
+    
+    async def get_registered_agent_info(self, agent_id: str) -> RegisteredAgentInfo:
+        """Get registered agent information by ID.
+        
+        Args:
+            agent_id: ID of the agent to retrieve
+            
+        Returns:
+            RegisteredAgentInfo object
+            
+        Raises:
+            AgentNotRegisteredException: If agent is not registered
+            RuntimeError: If storage backend not initialized
+        """
+        self.logger.info(f"Retrieving registered agent info for {agent_id}")
+        
+        if not self.storage:
+            raise RuntimeError("Storage backend not initialized")
+        
+        try:
+            agent_info = await self.storage.get_registered_agent_info(agent_id)
+            if not agent_info:
+                self.logger.warning(f"Agent {agent_id} not found")
+                raise AgentNotRegisteredException(agent_id)
+            
+            self.logger.info(f"Retrieved registered agent info for {agent_id}")
+            return agent_info
+        except AgentNotRegisteredException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve agent info for {agent_id}: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve agent information: {str(e)}")
+    
     async def schedule_job(self, experiment_id: str, job_config: dict) -> Optional[str]:
         """Schedule a job for execution on an appropriate agent.
         
@@ -332,7 +382,7 @@ class RuckusServer:
             self.logger.error("Storage backend not initialized")
             return None
         
-        return await self.storage.get_agent(agent_id)
+        return await self.storage.get_registered_agent_info(agent_id)
     
     async def health_check(self) -> dict:
         """Check the health of the server and its components.
@@ -348,7 +398,7 @@ class RuckusServer:
             }
         
         storage_healthy = await self.storage.health_check()
-        agents = await self.storage.list_agents()
+        agents = await self.storage.list_registered_agent_info()
         
         return {
             "status": "healthy" if storage_healthy else "unhealthy",

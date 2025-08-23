@@ -10,6 +10,7 @@ from ruckus_common.models import (
     JobStatus,
     AgentType,
     AgentInfo,
+    RegisteredAgentInfo,
 )
 
 
@@ -51,9 +52,3 @@ class SchedulerState(BaseModel):
     last_schedule_time: Optional[datetime]
 
 
-class RegisteredAgentInfo(BaseModel):
-    """Model containing registered agent information including URL and agent details."""
-    
-    agent_info: AgentInfo = Field(..., description="Agent information from the agent's /info endpoint")
-    agent_url: str = Field(..., description="Base URL of the registered agent")
-    registered_at: datetime = Field(default_factory=datetime.utcnow, description="When the agent was registered")

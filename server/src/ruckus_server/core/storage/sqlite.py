@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .base import StorageBackend, Base, Agent, Experiment, Job
 from ..config import SQLiteSettings
+from ruckus_common.models import AgentInfo, AgentType, RegisteredAgentInfo
 
 
 class SQLiteStorageBackend(StorageBackend):
@@ -49,11 +50,8 @@ class SQLiteStorageBackend(StorageBackend):
                 self.engine, class_=AsyncSession, expire_on_commit=False
             )
             
-            # Create tables (drop and recreate for development to handle schema changes)
+            # Create tables if they don't exist
             async with self.engine.begin() as conn:
-                # Drop all tables first to handle schema changes
-                await conn.run_sync(Base.metadata.drop_all)
-                # Create all tables with new schema
                 await conn.run_sync(Base.metadata.create_all)
             
             self.logger.info(f"SQLite storage backend initialized at {self.settings.database_path}")
@@ -95,22 +93,21 @@ class SQLiteStorageBackend(StorageBackend):
                 await asyncio.sleep(wait_time)
     
     # Agent management
-    async def register_agent(self, agent_info: 'RegisteredAgentInfo') -> bool:
+    async def register_agent(self, agent_info: RegisteredAgentInfo) -> bool:
         """Register a new agent with full information."""
-        from ..models import RegisteredAgentInfo
         
         async def _register():
             async with self.session_factory() as session:
                 agent = Agent(
-                    id=agent_info.agent_info.agent_id,
-                    agent_name=agent_info.agent_info.agent_name,
-                    agent_type=agent_info.agent_info.agent_type.value,  # Convert enum to string
+                    id=agent_info.agent_id,
+                    agent_name=agent_info.agent_name,
+                    agent_type=agent_info.agent_type.value,  # Convert enum to string
                     agent_url=agent_info.agent_url,
-                    system_info=agent_info.agent_info.system_info,
-                    capabilities=agent_info.agent_info.capabilities,
+                    system_info=agent_info.system_info,
+                    capabilities=agent_info.capabilities,
                     status="active",
                     last_heartbeat=datetime.utcnow(),
-                    last_updated=agent_info.agent_info.last_updated,
+                    last_updated=agent_info.last_updated,
                     registered_at=agent_info.registered_at
                 )
                 session.add(agent)
@@ -120,7 +117,7 @@ class SQLiteStorageBackend(StorageBackend):
         try:
             return await self._retry_operation(_register)
         except Exception as e:
-            self.logger.error(f"Failed to register agent {agent_info.agent_info.agent_id}: {e}")
+            self.logger.error(f"Failed to register agent {agent_info.agent_id}: {e}")
             return False
     
     async def update_agent_status(self, agent_id: str, status: str) -> bool:
@@ -172,8 +169,21 @@ class SQLiteStorageBackend(StorageBackend):
             self.logger.error(f"Failed to check if agent {agent_id} exists: {e}")
             return False
     
-    async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """Get agent by ID."""
+    def _agent_to_registered_agent_info(self, agent: Agent) -> RegisteredAgentInfo:
+        """Convert a SQLAlchemy Agent object to RegisteredAgentInfo."""
+        return RegisteredAgentInfo(
+            agent_id=agent.id,
+            agent_name=agent.agent_name,
+            agent_type=AgentType(agent.agent_type),
+            system_info=agent.system_info or {},
+            capabilities=agent.capabilities or {},
+            last_updated=agent.last_updated,
+            agent_url=agent.agent_url,
+            registered_at=agent.registered_at
+        )
+    
+    async def get_registered_agent_info(self, agent_id: str) -> Optional[RegisteredAgentInfo]:
+        """Get registered agent info by ID."""
         async def _get():
             async with self.session_factory() as session:
                 stmt = select(Agent).where(Agent.id == agent_id)
@@ -181,20 +191,7 @@ class SQLiteStorageBackend(StorageBackend):
                 agent = result.scalar_one_or_none()
                 
                 if agent:
-                    return {
-                        "id": agent.id,
-                        "agent_name": agent.agent_name,
-                        "agent_type": agent.agent_type,
-                        "agent_url": agent.agent_url,
-                        "system_info": agent.system_info,
-                        "capabilities": agent.capabilities,
-                        "status": agent.status,
-                        "last_heartbeat": agent.last_heartbeat,
-                        "last_updated": agent.last_updated,
-                        "registered_at": agent.registered_at,
-                        "created_at": agent.created_at,
-                        "updated_at": agent.updated_at
-                    }
+                    return self._agent_to_registered_agent_info(agent)
                 return None
         
         try:
@@ -203,25 +200,15 @@ class SQLiteStorageBackend(StorageBackend):
             self.logger.error(f"Failed to get agent {agent_id}: {e}")
             return None
     
-    async def list_agents(self) -> List[Dict[str, Any]]:
-        """List all agents."""
+    async def list_registered_agent_info(self) -> List[RegisteredAgentInfo]:
+        """List all registered agent info."""
         async def _list():
             async with self.session_factory() as session:
                 stmt = select(Agent)
                 result = await session.execute(stmt)
                 agents = result.scalars().all()
                 
-                return [
-                    {
-                        "id": agent.id,
-                        "capabilities": agent.capabilities,
-                        "status": agent.status,
-                        "last_heartbeat": agent.last_heartbeat,
-                        "created_at": agent.created_at,
-                        "updated_at": agent.updated_at
-                    }
-                    for agent in agents
-                ]
+                return [self._agent_to_registered_agent_info(agent) for agent in agents]
         
         try:
             return await self._retry_operation(_list)
