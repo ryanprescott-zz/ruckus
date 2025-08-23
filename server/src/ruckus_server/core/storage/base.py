@@ -22,10 +22,16 @@ class Agent(Base):
     """Agent database model."""
     __tablename__ = "agents"
     
-    id = Column(String, primary_key=True)
-    capabilities = Column(JSON)
+    id = Column(String, primary_key=True)  # This is the agent_id
+    agent_name = Column(String)
+    agent_type = Column(String)
+    agent_url = Column(String, nullable=False)
+    system_info = Column(JSON, default=dict)
+    capabilities = Column(JSON, default=dict)
     status = Column(String, default="active")
     last_heartbeat = Column(DateTime)
+    last_updated = Column(DateTime)
+    registered_at = Column(DateTime, default=func.now())
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -80,8 +86,15 @@ class StorageBackend(ABC):
     
     # Agent management
     @abstractmethod
-    async def register_agent(self, agent_id: str, capabilities: Dict[str, Any]) -> bool:
-        """Register a new agent."""
+    async def register_agent(self, agent_info: 'RegisteredAgentInfo') -> bool:
+        """Register a new agent with full information.
+        
+        Args:
+            agent_info: RegisteredAgentInfo object containing all agent details
+            
+        Returns:
+            True if registration successful, False otherwise
+        """
         pass
     
     @abstractmethod

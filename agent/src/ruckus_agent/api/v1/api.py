@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from ruckus_common.models import (
     JobRequest, JobUpdate, JobResult, AgentType,
-    AgentRegistrationResponse, AgentInfoResponse
+    AgentRegistrationResponse, AgentInfoResponse, AgentInfo
 )
 
 router = APIRouter()
@@ -47,13 +47,15 @@ async def get_agent_info(request: Request):
     system_info = await agent.get_system_info()
     capabilities = await agent.get_capabilities()
     
-    response = AgentInfoResponse(
+    agent_info = AgentInfo(
         agent_id=agent.agent_id,
         agent_name=agent.agent_name,
         agent_type=agent.settings.agent_type,
         system_info=system_info,
         capabilities=capabilities
     )
+    
+    response = AgentInfoResponse(agent_info=agent_info)
     return response
 
 

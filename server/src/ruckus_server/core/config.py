@@ -100,6 +100,10 @@ class RuckusServerSettings(BaseSettings):
     postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
     sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
     
+    # Agent and HTTP client settings
+    agent: AgentSettings = Field(default_factory=AgentSettings)
+    http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
+    
     class Config:
         env_prefix = "RUCKUS_SERVER_"
         env_file = ".env"
@@ -121,8 +125,33 @@ class AgentSettings(BaseSettings):
     heartbeat_interval: int = Field(default=30, description="Heartbeat interval in seconds")
     max_agents: int = Field(default=100, description="Maximum number of agents")
     
+    # Agent protocol settings
+    info_endpoint_path: str = Field(
+        default="/api/v1/info", 
+        description="Path to agent info endpoint"
+    )
+    
     class Config:
         env_prefix = "RUCKUS_AGENT_"
+        env_file = ".env"
+        case_sensitive = False
+
+
+class HttpClientSettings(BaseSettings):
+    """HTTP client configuration settings."""
+    
+    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    initial_backoff: float = Field(default=1.0, description="Initial backoff delay in seconds")
+    max_backoff: float = Field(default=3.0, description="Maximum backoff delay in seconds")
+    retry_status_codes: list = Field(
+        default=[500, 502, 503, 504, 408, 429], 
+        description="HTTP status codes that trigger retries"
+    )
+    connection_timeout: float = Field(default=10.0, description="Connection timeout in seconds")
+    read_timeout: float = Field(default=30.0, description="Read timeout in seconds")
+    
+    class Config:
+        env_prefix = "RUCKUS_HTTP_"
         env_file = ".env"
         case_sensitive = False
 

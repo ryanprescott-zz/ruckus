@@ -9,23 +9,9 @@ from ruckus_common.models import (
     JobSpec,
     JobStatus,
     AgentType,
+    AgentInfo,
 )
 
-
-class AgentInfo(BaseModel):
-    """Agent information for server tracking."""
-    agent_id: str
-    agent_type: AgentType
-    hostname: str
-    ip_address: str
-    status: str = "offline"
-    capabilities: Dict[str, bool]
-    frameworks: List[str]
-    hardware_info: Dict[str, Any]
-    last_heartbeat: datetime
-    current_jobs: List[str] = Field(default_factory=list)
-    total_completed: int = 0
-    total_failed: int = 0
 
 
 class ExperimentStatus(BaseModel):
@@ -63,3 +49,11 @@ class SchedulerState(BaseModel):
     failed_jobs: int
     scheduler_running: bool
     last_schedule_time: Optional[datetime]
+
+
+class RegisteredAgentInfo(BaseModel):
+    """Model containing registered agent information including URL and agent details."""
+    
+    agent_info: AgentInfo = Field(..., description="Agent information from the agent's /info endpoint")
+    agent_url: str = Field(..., description="Base URL of the registered agent")
+    registered_at: datetime = Field(default_factory=datetime.utcnow, description="When the agent was registered")

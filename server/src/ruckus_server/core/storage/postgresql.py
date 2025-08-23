@@ -86,15 +86,23 @@ class PostgreSQLStorageBackend(StorageBackend):
                 await asyncio.sleep(wait_time)
     
     # Agent management
-    async def register_agent(self, agent_id: str, capabilities: Dict[str, Any]) -> bool:
-        """Register a new agent."""
+    async def register_agent(self, agent_info: 'RegisteredAgentInfo') -> bool:
+        """Register a new agent with full information."""
+        from ..models import RegisteredAgentInfo
+        
         async def _register():
             async with self.session_factory() as session:
                 agent = Agent(
-                    id=agent_id,
-                    capabilities=capabilities,
+                    id=agent_info.agent_info.agent_id,
+                    agent_name=agent_info.agent_info.agent_name,
+                    agent_type=agent_info.agent_info.agent_type.value,  # Convert enum to string
+                    agent_url=agent_info.agent_url,
+                    system_info=agent_info.agent_info.system_info,
+                    capabilities=agent_info.agent_info.capabilities,
                     status="active",
-                    last_heartbeat=datetime.utcnow()
+                    last_heartbeat=datetime.utcnow(),
+                    last_updated=agent_info.agent_info.last_updated,
+                    registered_at=agent_info.registered_at
                 )
                 session.add(agent)
                 await session.commit()

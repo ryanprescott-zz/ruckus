@@ -138,31 +138,63 @@ class RuckusServer:
         # TODO: Implement graceful shutdown of background tasks
         pass
     
-    async def register_agent(self, agent_id: str, capabilities: dict) -> bool:
+    async def register_agent(self, agent_url: str) -> 'RegisteredAgentInfo':
         """Register a new agent with the server.
         
         Args:
-            agent_id: Unique identifier for the agent.
-            capabilities: Agent capabilities and hardware profile.
+            agent_url: Base URL of the agent to register
             
         Returns:
-            True if registration successful, False otherwise.
+            RegisteredAgentInfo object with agent details
+            
+        Raises:
+            ConnectionError: If cannot connect to agent
+            ServiceUnavailableError: If agent is unavailable after retries
+            ValueError: If agent info is invalid
         """
-        self.logger.info(f"Registering agent {agent_id}")
+        from .agent import AgentProtocolUtility
+        from .clients.http import ConnectionError, ServiceUnavailableError
+        from .models import RegisteredAgentInfo
+        
+        self.logger.info(f"Registering agent at {agent_url}")
         
         if not self.storage:
-            self.logger.error("Storage backend not initialized")
-            return False
+            raise RuntimeError("Storage backend not initialized")
         
-        # TODO: Validate agent capabilities
-        success = await self.storage.register_agent(agent_id, capabilities)
+        # Create agent protocol utility
+        agent_util = AgentProtocolUtility(
+            self.settings.agent, 
+            self.settings.http_client
+        )
         
-        if success:
-            self.logger.info(f"Agent {agent_id} registered successfully")
-        else:
-            self.logger.error(f"Failed to register agent {agent_id}")
-        
-        return success
+        try:
+            # Get agent info from the agent's /info endpoint
+            agent_info_response = await agent_util.get_agent_info(agent_url)
+            
+            # Create RegisteredAgentInfo object
+            registered_info = agent_util.create_registered_agent_info(
+                agent_info_response, 
+                agent_url
+            )
+            
+            # Store in database
+            success = await self.storage.register_agent(registered_info)
+            
+            if not success:
+                raise RuntimeError("Failed to store agent information in database")
+            
+            self.logger.info(f"Agent {registered_info.agent_id} registered successfully")
+            return registered_info
+            
+        except ConnectionError as e:
+            self.logger.error(f"Failed to connect to agent at {agent_url}: {str(e)}")
+            raise
+        except ServiceUnavailableError as e:
+            self.logger.error(f"Agent at {agent_url} is unavailable: {str(e)}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error registering agent at {agent_url}: {str(e)}")
+            raise ValueError(f"Failed to register agent: {str(e)}")
     
     async def schedule_job(self, experiment_id: str, job_config: dict) -> Optional[str]:
         """Schedule a job for execution on an appropriate agent.

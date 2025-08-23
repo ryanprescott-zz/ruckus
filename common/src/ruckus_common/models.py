@@ -238,14 +238,19 @@ class AgentRegistrationResponse(BaseModel):
     server_time: datetime = Field(default_factory=datetime.utcnow)
 
 
-class AgentInfoResponse(BaseModel):
-    """Response containing agent system information."""
+class AgentInfo(BaseModel):
+    """Agent system information."""
     agent_id: str
     agent_name: Optional[str] = None
     agent_type: AgentType
     system_info: Dict[str, Any] = Field(default_factory=dict)
     capabilities: Dict[str, Any] = Field(default_factory=dict)
     last_updated: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AgentInfoResponse(BaseModel):
+    """Response containing agent system information."""
+    agent_info: AgentInfo
 
 
 # Response Models
