@@ -11,6 +11,9 @@ import yaml
 from .config import RuckusServerSettings, StorageBackendType
 from .storage.factory import StorageFactory
 from .storage.base import StorageBackend
+from .models import RegisteredAgentInfo
+from .agent import AgentProtocolUtility
+from .clients.http import ConnectionError, ServiceUnavailableError
 
 
 class RuckusServer:
@@ -138,7 +141,7 @@ class RuckusServer:
         # TODO: Implement graceful shutdown of background tasks
         pass
     
-    async def register_agent(self, agent_url: str) -> 'RegisteredAgentInfo':
+    async def register_agent(self, agent_url: str) -> RegisteredAgentInfo:
         """Register a new agent with the server.
         
         Args:
@@ -152,9 +155,6 @@ class RuckusServer:
             ServiceUnavailableError: If agent is unavailable after retries
             ValueError: If agent info is invalid
         """
-        from .agent import AgentProtocolUtility
-        from .clients.http import ConnectionError, ServiceUnavailableError
-        from .models import RegisteredAgentInfo
         
         self.logger.info(f"Registering agent at {agent_url}")
         
