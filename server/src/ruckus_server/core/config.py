@@ -76,40 +76,6 @@ class StorageBackendType(str, Enum):
     SQLITE = "sqlite"
 
 
-class RuckusServerSettings(BaseSettings):
-    """RuckusServer configuration settings containing everything it needs."""
-    
-    host: str = Field(default="0.0.0.0", description="Server host address")
-    port: int = Field(default=8000, description="Server port")
-    debug: bool = Field(default=False, description="Enable debug mode")
-    
-    # Storage backend configuration
-    storage_backend: StorageBackendType = Field(
-        default=StorageBackendType.SQLITE,
-        description="Storage backend type"
-    )
-    
-    # Logging configuration
-    log_level: str = Field(default="INFO", description="Logging level")
-    log_config_file: str = Field(
-        default="logging.yml",
-        description="Path to logging configuration file"
-    )
-    
-    # Storage backend settings
-    postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
-    sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
-    
-    # Agent and HTTP client settings
-    agent: AgentSettings = Field(default_factory=AgentSettings)
-    http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
-    
-    class Config:
-        env_prefix = "RUCKUS_SERVER_"
-        env_file = ".env"
-        case_sensitive = False
-
-
 class AgentSettings(BaseSettings):
     """Agent management settings."""
     
@@ -152,6 +118,40 @@ class HttpClientSettings(BaseSettings):
     
     class Config:
         env_prefix = "RUCKUS_HTTP_"
+        env_file = ".env"
+        case_sensitive = False
+        
+
+class RuckusServerSettings(BaseSettings):
+    """RuckusServer configuration settings containing everything it needs."""
+    
+    host: str = Field(default="0.0.0.0", description="Server host address")
+    port: int = Field(default=8000, description="Server port")
+    debug: bool = Field(default=False, description="Enable debug mode")
+    
+    # Storage backend configuration
+    storage_backend: StorageBackendType = Field(
+        default=StorageBackendType.SQLITE,
+        description="Storage backend type"
+    )
+    
+    # Logging configuration
+    log_level: str = Field(default="INFO", description="Logging level")
+    log_config_file: str = Field(
+        default="logging.yml",
+        description="Path to logging configuration file"
+    )
+    
+    # Storage backend settings
+    postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
+    sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
+    
+    # Agent and HTTP client settings
+    agent: AgentSettings = Field(default_factory=AgentSettings)
+    http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
+    
+    class Config:
+        env_prefix = "RUCKUS_SERVER_"
         env_file = ".env"
         case_sensitive = False
 

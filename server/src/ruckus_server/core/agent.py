@@ -66,9 +66,9 @@ class AgentProtocolUtility:
                 response_data = await http_client.get_with_retry(info_url)
                 
                 # Parse response into AgentInfoResponse model
-                agent_info = AgentInfoResponse(**response_data)
-                self.logger.info(f"Successfully retrieved info for agent {agent_info.agent_id}")
-                return agent_info
+                agent_info_response = AgentInfoResponse(**response_data)
+                self.logger.info(f"Successfully retrieved info for agent {agent_info_response.agent_info.agent_id}")
+                return agent_info_response
                 
             except ConnectionError as e:
                 self.logger.error(f"Failed to connect to agent at {info_url}: {str(e)}")

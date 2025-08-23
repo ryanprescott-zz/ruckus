@@ -6,7 +6,7 @@ from datetime import datetime
 
 from ruckus_common.models import AgentCapabilitiesBase
 from ..models import RegisterAgentRequest, RegisterAgentResponse
-from ...core.clients.http import ConnectionError, ServiceUnavailableError
+from ruckus_server.core.clients.http import ConnectionError, ServiceUnavailableError
 
 router = APIRouter()
 

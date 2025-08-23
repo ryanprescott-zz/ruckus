@@ -183,7 +183,7 @@ class RuckusServer:
             if not success:
                 raise RuntimeError("Failed to store agent information in database")
             
-            self.logger.info(f"Agent {registered_info.agent_id} registered successfully")
+            self.logger.info(f"Agent {registered_info.agent_info.agent_id} registered successfully")
             return registered_info
             
         except ConnectionError as e:

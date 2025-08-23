@@ -39,12 +39,15 @@ class HttpClient:
     
     async def __aenter__(self):
         """Async context manager entry."""
-        self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=self.settings.connection_timeout,
-                read=self.settings.read_timeout
-            )
+        # Create timeout configuration with all parameters explicitly set
+        timeout_config = httpx.Timeout(
+            connect=self.settings.connection_timeout,
+            read=self.settings.read_timeout,
+            write=self.settings.connection_timeout,
+            pool=self.settings.connection_timeout
         )
+        
+        self._client = httpx.AsyncClient(timeout=timeout_config)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):

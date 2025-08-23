@@ -43,8 +43,11 @@ class PostgreSQLStorageBackend(StorageBackend):
                 self.engine, class_=AsyncSession, expire_on_commit=False
             )
             
-            # Create tables
+            # Create tables (drop and recreate for development to handle schema changes)
             async with self.engine.begin() as conn:
+                # Drop all tables first to handle schema changes
+                await conn.run_sync(Base.metadata.drop_all)
+                # Create all tables with new schema
                 await conn.run_sync(Base.metadata.create_all)
             
             self.logger.info("PostgreSQL storage backend initialized")
@@ -111,7 +114,7 @@ class PostgreSQLStorageBackend(StorageBackend):
         try:
             return await self._retry_operation(_register)
         except Exception as e:
-            self.logger.error(f"Failed to register agent {agent_id}: {e}")
+            self.logger.error(f"Failed to register agent {agent_info.agent_info.agent_id}: {e}")
             return False
     
     async def update_agent_status(self, agent_id: str, status: str) -> bool:
