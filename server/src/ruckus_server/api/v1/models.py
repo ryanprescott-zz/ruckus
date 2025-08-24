@@ -6,7 +6,7 @@ import re
 
 from datetime import datetime
 from typing import List
-from ruckus_common.models import RegisteredAgentInfo
+from ruckus_common.models import RegisteredAgentInfo, AgentStatus
 
 
 class RegisterAgentRequest(BaseModel):
@@ -77,3 +77,15 @@ class GetAgentInfoResponse(BaseModel):
     """Response model for getting specific agent information."""
     
     agent: RegisteredAgentInfo = Field(..., description="Registered agent information")
+
+
+class ListAgentStatusResponse(BaseModel):
+    """Response model for getting all agent status information."""
+    
+    agents: List[AgentStatus] = Field(..., description="List of agent status information")
+
+
+class GetAgentStatusResponse(BaseModel):
+    """Response model for getting specific agent status information."""
+    
+    agent: AgentStatus = Field(..., description="Agent status information")

@@ -5,15 +5,18 @@ import logging
 import logging.config
 from pathlib import Path
 from typing import Dict, List, Optional
+from datetime import datetime
+from urllib.parse import urljoin
 
 import yaml
 
 from .config import RuckusServerSettings, StorageBackendType
 from .storage.factory import StorageFactory
 from .storage.base import StorageBackend
-from ruckus_common.models import RegisteredAgentInfo
+from ruckus_common.models import RegisteredAgentInfo, AgentStatus, AgentStatusEnum
 from .agent import AgentProtocolUtility
 from .clients.http import ConnectionError, ServiceUnavailableError
+from .clients.simple_http import SimpleHttpClient
 
 
 class AgentAlreadyRegisteredException(Exception):
@@ -405,3 +408,150 @@ class RuckusServer:
             "storage": "healthy" if storage_healthy else "unhealthy",
             "agents": len(agents)
         }
+    
+    async def list_registered_agent_status(self) -> List[AgentStatus]:
+        """Get status of all registered agents.
+        
+        Fetches status from each agent's /status endpoint concurrently.
+        For unreachable agents, creates AgentStatus with UNAVAILABLE status.
+        
+        Returns:
+            List of AgentStatus objects for all registered agents
+        """
+        self.logger.info("Retrieving status for all registered agents")
+        
+        if not self.storage:
+            raise RuntimeError("Storage backend not initialized")
+        
+        try:
+            # Get all registered agents
+            registered_agents = await self.storage.list_registered_agent_info()
+            
+            if not registered_agents:
+                self.logger.info("No registered agents found")
+                return []
+            
+            # Create simple HTTP client for status checks
+            http_client = SimpleHttpClient(timeout_seconds=5.0)
+            
+            # Create tasks to fetch status from each agent concurrently
+            tasks = []
+            for agent in registered_agents:
+                task = self._get_agent_status(http_client, agent)
+                tasks.append(task)
+            
+            # Execute all status requests concurrently
+            agent_statuses = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results and handle any exceptions
+            results = []
+            for i, status_result in enumerate(agent_statuses):
+                if isinstance(status_result, Exception):
+                    # Create unavailable status for failed requests
+                    agent = registered_agents[i]
+                    unavailable_status = AgentStatus(
+                        agent_id=agent.agent_id,
+                        status=AgentStatusEnum.UNAVAILABLE,
+                        running_jobs=[],
+                        queued_jobs=[],
+                        uptime_seconds=0.0,
+                        timestamp=datetime.utcnow()
+                    )
+                    results.append(unavailable_status)
+                    self.logger.warning(f"Failed to get status for agent {agent.agent_id}: {status_result}")
+                else:
+                    results.append(status_result)
+            
+            self.logger.info(f"Retrieved status for {len(results)} agents")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve agent statuses: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve agent statuses: {str(e)}")
+    
+    async def _get_agent_status(self, http_client: SimpleHttpClient, agent: RegisteredAgentInfo) -> AgentStatus:
+        """Get status from a single agent.
+        
+        Args:
+            http_client: HTTP client for making requests
+            agent: Registered agent information
+            
+        Returns:
+            AgentStatus object from agent or UNAVAILABLE status if unreachable
+        """
+        try:
+            # Build status endpoint URL
+            status_url = urljoin(agent.agent_url.rstrip('/') + '/', 'api/v1/status')
+            
+            # Fetch status from agent
+            response_data = await http_client.get_json(status_url)
+            
+            if response_data is None:
+                # HTTP request failed, return unavailable status
+                return AgentStatus(
+                    agent_id=agent.agent_id,
+                    status=AgentStatusEnum.UNAVAILABLE,
+                    running_jobs=[],
+                    queued_jobs=[],
+                    uptime_seconds=0.0,
+                    timestamp=datetime.utcnow()
+                )
+            
+            # Parse response into AgentStatus
+            agent_status = AgentStatus(**response_data)
+            return agent_status
+            
+        except Exception as e:
+            self.logger.debug(f"Error getting status for agent {agent.agent_id}: {e}")
+            # Return unavailable status on any error
+            return AgentStatus(
+                agent_id=agent.agent_id,
+                status=AgentStatusEnum.UNAVAILABLE,
+                running_jobs=[],
+                queued_jobs=[],
+                uptime_seconds=0.0,
+                timestamp=datetime.utcnow()
+            )
+    
+    async def get_registered_agent_status(self, agent_id: str) -> AgentStatus:
+        """Get status of a specific registered agent.
+        
+        Fetches status from the agent's /status endpoint.
+        For unreachable agents, creates AgentStatus with UNAVAILABLE status.
+        
+        Args:
+            agent_id: ID of the agent to get status for
+            
+        Returns:
+            AgentStatus object for the specified agent
+            
+        Raises:
+            AgentNotRegisteredException: If agent is not registered
+            RuntimeError: If storage backend not initialized
+        """
+        self.logger.info(f"Retrieving status for agent {agent_id}")
+        
+        if not self.storage:
+            raise RuntimeError("Storage backend not initialized")
+        
+        try:
+            # Get the registered agent info
+            agent = await self.storage.get_registered_agent_info(agent_id)
+            if not agent:
+                self.logger.warning(f"Agent {agent_id} not found in storage")
+                raise AgentNotRegisteredException(agent_id)
+            
+            # Create simple HTTP client for status check
+            http_client = SimpleHttpClient(timeout_seconds=5.0)
+            
+            # Get status from the agent
+            agent_status = await self._get_agent_status(http_client, agent)
+            
+            self.logger.info(f"Retrieved status for agent {agent_id}: {agent_status.status}")
+            return agent_status
+            
+        except AgentNotRegisteredException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve status for agent {agent_id}: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve agent status: {str(e)}")

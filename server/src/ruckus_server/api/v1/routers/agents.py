@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from ruckus_common.models import AgentCapabilitiesBase
-from ..models import RegisterAgentRequest, RegisterAgentResponse, UnregisterAgentRequest, UnregisterAgentResponse, ListAgentInfoResponse, GetAgentInfoResponse
+from ..models import RegisterAgentRequest, RegisterAgentResponse, UnregisterAgentRequest, UnregisterAgentResponse, ListAgentInfoResponse, GetAgentInfoResponse, ListAgentStatusResponse, GetAgentStatusResponse
 from ruckus_server.core.clients.http import ConnectionError, ServiceUnavailableError
 from ruckus_server.core.server import AgentAlreadyRegisteredException, AgentNotRegisteredException
 
@@ -158,6 +158,71 @@ async def get_agent_info(agent_id: str, request: Request):
         
         # Return response with agent info
         return GetAgentInfoResponse(agent=agent_info)
+        
+    except AgentNotRegisteredException as e:
+        # Agent is not registered - return 404
+        raise HTTPException(
+            status_code=404,
+            detail=f"No agent with ID {e.agent_id} is registered"
+        )
+    except Exception as e:
+        # Unexpected errors
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/status", response_model=ListAgentStatusResponse)
+async def list_agent_status(request: Request):
+    """Get status of all registered agents.
+    
+    Args:
+        request: FastAPI request object to access app state
+        
+    Returns:
+        ListAgentStatusResponse containing status of all registered agents
+        
+    Raises:
+        HTTPException: 503 if server not initialized, 500 for other errors
+    """
+    server = request.app.state.server
+    if not server:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+    
+    try:
+        # Get status of all registered agents from the server
+        agent_statuses = await server.list_registered_agent_status()
+        
+        # Return response with list of agent statuses
+        return ListAgentStatusResponse(agents=agent_statuses)
+        
+    except Exception as e:
+        # Unexpected errors
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/{agent_id}/status", response_model=GetAgentStatusResponse)
+async def get_agent_status(agent_id: str, request: Request):
+    """Get status of a specific registered agent.
+    
+    Args:
+        agent_id: ID of the agent to get status for
+        request: FastAPI request object to access app state
+        
+    Returns:
+        GetAgentStatusResponse containing status of the specified agent
+        
+    Raises:
+        HTTPException: 404 if agent not found, 503 if server not initialized, 500 for other errors
+    """
+    server = request.app.state.server
+    if not server:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+    
+    try:
+        # Get status of the specified agent from the server
+        agent_status = await server.get_registered_agent_status(agent_id)
+        
+        # Return response with agent status
+        return GetAgentStatusResponse(agent=agent_status)
         
     except AgentNotRegisteredException as e:
         # Agent is not registered - return 404

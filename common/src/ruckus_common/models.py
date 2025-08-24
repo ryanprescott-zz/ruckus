@@ -54,6 +54,14 @@ class TaskType(str, Enum):
     CUSTOM = "custom"
 
 
+class AgentStatusEnum(str, Enum):
+    """Agent status values."""
+    ACTIVE = "active"          # Agent is running one or more jobs
+    IDLE = "idle"             # Agent is not running any jobs
+    ERROR = "error"           # Agent is in an error state and cannot run jobs
+    UNAVAILABLE = "unavailable"  # Agent cannot be contacted
+
+
 # Base Models
 class TimestampedModel(BaseModel):
     """Base model with timestamp fields."""
@@ -260,6 +268,16 @@ class RegisteredAgentInfo(AgentInfo):
 
 
 # Response Models
+class AgentStatus(BaseModel):
+    """Agent status information."""
+    agent_id: str
+    status: AgentStatusEnum
+    running_jobs: List[str] = Field(default_factory=list, description="List of currently running job IDs")
+    queued_jobs: List[str] = Field(default_factory=list, description="List of queued job IDs")
+    uptime_seconds: float = Field(description="Agent uptime in seconds")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Current timestamp")
+
+
 class HealthStatus(BaseModel):
     """Health check response."""
     status: str  # "healthy", "degraded", "unhealthy"

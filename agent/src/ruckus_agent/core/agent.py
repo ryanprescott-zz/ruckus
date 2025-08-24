@@ -7,9 +7,9 @@ import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from ruckus_common.models import JobRequest, JobStatus, AgentType, JobUpdate
+from ruckus_common.models import JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum
 from .config import Settings
-from .models import AgentRegistration, AgentStatus
+from .models import AgentRegistration
 from .detector import AgentDetector
 from .storage import AgentStorage, InMemoryStorage
 
@@ -33,6 +33,7 @@ class Agent:
         self.registered = False
         self.running_jobs: Dict[str, Any] = {}
         self.job_queue: asyncio.Queue = asyncio.Queue()
+        self.queued_job_ids: List[str] = []  # Track queued job IDs for status reporting
         self.startup_time = datetime.utcnow()
 
         # HTTP client for orchestrator communication
@@ -141,7 +142,7 @@ class Agent:
                     status = await self.get_status()
                     response = await self.client.post(
                         f"{self.orchestrator_url}/api/v1/agents/{self.agent_id}/heartbeat",
-                        json=status,
+                        json=status.dict(),
                     )
                     logger.debug(f"Heartbeat sent, status: {response.status_code}")
                 else:
@@ -158,6 +159,9 @@ class Agent:
         while True:
             try:
                 job = await self.job_queue.get()
+                # Remove from queued job IDs when we start processing
+                if job.job_id in self.queued_job_ids:
+                    self.queued_job_ids.remove(job.job_id)
                 logger.info(f"Agent {self.agent_id} received job from queue: {job.job_id}")
                 await self._execute_job(job)
             except asyncio.CancelledError:
@@ -215,22 +219,34 @@ class Agent:
         """Get detailed system info for /info endpoint."""
         return await self.storage.get_system_info()
 
-    async def get_status(self) -> Dict:
+    async def get_status(self) -> AgentStatus:
         """Get agent status."""
-        return {
-            "agent_id": self.agent_id,
-            "status": "idle" if not self.running_jobs else "busy",
-            "running_jobs": list(self.running_jobs.keys()),
-            "queued_jobs": self.job_queue.qsize(),
-            "registered": self.registered,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
+        # Determine status based on current state
+        if self.running_jobs:
+            status = AgentStatusEnum.ACTIVE
+        elif self.queued_job_ids:
+            status = AgentStatusEnum.IDLE  # Has queued jobs but not running any
+        else:
+            status = AgentStatusEnum.IDLE
+        
+        # Calculate uptime
+        uptime_seconds = (datetime.utcnow() - self.startup_time).total_seconds()
+        
+        return AgentStatus(
+            agent_id=self.agent_id,
+            status=status,
+            running_jobs=list(self.running_jobs.keys()),
+            queued_jobs=self.queued_job_ids.copy(),  # Return copy of the list
+            uptime_seconds=uptime_seconds,
+            timestamp=datetime.utcnow()
+        )
 
     async def queue_job(self, job: JobRequest):
         """Queue a job for execution."""
         logger.info(f"Agent {self.agent_id} queueing job: {job.job_id}")
         try:
             await self.job_queue.put(job)
+            self.queued_job_ids.append(job.job_id)  # Track queued job ID
             logger.debug(f"Job {job.job_id} added to queue, queue size: {self.job_queue.qsize()}")
             return job.job_id
         except Exception as e:

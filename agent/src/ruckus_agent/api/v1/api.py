@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from ruckus_common.models import (
     JobRequest, JobUpdate, JobResult, AgentType,
-    AgentRegistrationResponse, AgentInfoResponse, AgentInfo
+    AgentRegistrationResponse, AgentInfoResponse, AgentInfo, AgentStatus
 )
 
 router = APIRouter()
@@ -77,7 +77,7 @@ async def execute_job(job_request: JobRequest, request: Request):
     }
 
 
-@router.get("/status")
+@router.get("/status", response_model=AgentStatus)
 async def get_status(request: Request):
     """Get agent status."""
     agent = request.app.state.agent
