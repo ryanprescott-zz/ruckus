@@ -5,7 +5,7 @@ import logging
 import logging.config
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 import yaml
@@ -226,6 +226,12 @@ class RuckusServer:
         except ServiceUnavailableError as e:
             self.logger.error(f"Agent at {agent_url} is unavailable: {str(e)}")
             raise
+        except AgentAlreadyRegisteredException as e:
+            self.logger.error(f"Agent at {agent_url} already registered: {str(e)}")
+            raise
+        except RuntimeError as e:
+            self.logger.error(f"Storage error registering agent at {agent_url}: {str(e)}")
+            raise
         except Exception as e:
             self.logger.error(f"Unexpected error registering agent at {agent_url}: {str(e)}")
             raise ValueError(f"Failed to register agent: {str(e)}")
@@ -262,7 +268,7 @@ class RuckusServer:
                 raise RuntimeError("Failed to remove agent from database")
             
             from datetime import datetime
-            unregistered_at = datetime.utcnow()
+            unregistered_at = datetime.now(timezone.utc)
             
             self.logger.info(f"Agent {agent_id} unregistered successfully")
             return {
@@ -455,7 +461,7 @@ class RuckusServer:
                         running_jobs=[],
                         queued_jobs=[],
                         uptime_seconds=0.0,
-                        timestamp=datetime.utcnow()
+                        timestamp=datetime.now(timezone.utc)
                     )
                     results.append(unavailable_status)
                     self.logger.warning(f"Failed to get status for agent {agent.agent_id}: {status_result}")
@@ -494,7 +500,7 @@ class RuckusServer:
                     running_jobs=[],
                     queued_jobs=[],
                     uptime_seconds=0.0,
-                    timestamp=datetime.utcnow()
+                    timestamp=datetime.now(timezone.utc)
                 )
             
             # Parse response into AgentStatus
@@ -510,7 +516,7 @@ class RuckusServer:
                 running_jobs=[],
                 queued_jobs=[],
                 uptime_seconds=0.0,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
     
     async def get_registered_agent_status(self, agent_id: str) -> AgentStatus:

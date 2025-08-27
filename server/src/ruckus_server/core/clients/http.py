@@ -128,6 +128,10 @@ class HttpClient:
                     self.logger.error(f"GET {url} timed out after {self.settings.max_retries} retries")
                     raise ServiceUnavailableError(f"Request timeout after {self.settings.max_retries} retries")
             
+            except (ServiceUnavailableError, HttpClientError, ConnectionError):
+                # Re-raise our own exceptions without wrapping
+                raise
+            
             except Exception as e:
                 last_exception = e
                 self.logger.error(f"Unexpected error for GET {url}: {str(e)}")

@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import create_engine, select, update, delete
@@ -106,7 +106,7 @@ class SQLiteStorageBackend(StorageBackend):
                     system_info=agent_info.system_info,
                     capabilities=agent_info.capabilities,
                     status="active",
-                    last_heartbeat=datetime.utcnow(),
+                    last_heartbeat=datetime.now(timezone.utc),
                     last_updated=agent_info.last_updated,
                     registered_at=agent_info.registered_at
                 )
@@ -125,7 +125,7 @@ class SQLiteStorageBackend(StorageBackend):
         async def _update():
             async with self.session_factory() as session:
                 stmt = update(Agent).where(Agent.id == agent_id).values(
-                    status=status, updated_at=datetime.utcnow()
+                    status=status, updated_at=datetime.now(timezone.utc)
                 )
                 result = await session.execute(stmt)
                 await session.commit()
@@ -142,7 +142,7 @@ class SQLiteStorageBackend(StorageBackend):
         async def _update():
             async with self.session_factory() as session:
                 stmt = update(Agent).where(Agent.id == agent_id).values(
-                    last_heartbeat=datetime.utcnow(), updated_at=datetime.utcnow()
+                    last_heartbeat=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)
                 )
                 result = await session.execute(stmt)
                 await session.commit()
@@ -259,7 +259,7 @@ class SQLiteStorageBackend(StorageBackend):
         async def _update():
             async with self.session_factory() as session:
                 stmt = update(Experiment).where(Experiment.id == experiment_id).values(
-                    status=status, updated_at=datetime.utcnow()
+                    status=status, updated_at=datetime.now(timezone.utc)
                 )
                 result = await session.execute(stmt)
                 await session.commit()
@@ -368,7 +368,7 @@ class SQLiteStorageBackend(StorageBackend):
                 stmt = update(Job).where(Job.id == job_id).values(
                     agent_id=agent_id,
                     status="assigned",
-                    updated_at=datetime.utcnow()
+                    updated_at=datetime.now(timezone.utc)
                 )
                 result = await session.execute(stmt)
                 await session.commit()
@@ -388,7 +388,7 @@ class SQLiteStorageBackend(StorageBackend):
             async with self.session_factory() as session:
                 values = {
                     "status": status,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": datetime.now(timezone.utc)
                 }
                 
                 if results is not None:
@@ -398,9 +398,9 @@ class SQLiteStorageBackend(StorageBackend):
                     values["error_message"] = error_message
                 
                 if status == "running":
-                    values["started_at"] = datetime.utcnow()
+                    values["started_at"] = datetime.now(timezone.utc)
                 elif status in ["completed", "failed"]:
-                    values["completed_at"] = datetime.utcnow()
+                    values["completed_at"] = datetime.now(timezone.utc)
                 
                 stmt = update(Job).where(Job.id == job_id).values(**values)
                 result = await session.execute(stmt)

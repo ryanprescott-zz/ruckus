@@ -235,15 +235,3 @@ async def get_agent_status(agent_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.post("/{agent_id}/heartbeat")
-async def agent_heartbeat(agent_id: str, status: dict):
-    """Receive agent heartbeat."""
-    # TODO: Implement heartbeat handling
-    return {"acknowledged": True}
-
-
-@router.delete("/{agent_id}")
-async def unregister_agent(agent_id: str):
-    """Unregister an agent."""
-    # TODO: Implement agent removal
-    return {"unregistered": True}
