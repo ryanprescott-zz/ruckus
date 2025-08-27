@@ -7,10 +7,14 @@ The ruckus project includes four subprojects: 1. The *ruckus server* manages exp
 ## Ruckus server
 The ruckus server will be the central brain of RUCKUS, responsible for managing experiments, coordinating agents, scheduling jobs, and aggregating results. It will expose a REST API for experiment creation and management, provide polling endpoints for status updates, and maintain all system state in a Postgres database. The ruckus server will handle ruckus agent registration and health monitoring, job distribution based on ruckus agent capabilities, and result normalization across different ruckus agent types.
 
+The ruckus server is responsible for persistence of all ruckus artifacts, including agent information and status, experiment definitions, experiment job status and results, etc.
+
 The ruckus server will store experiment definitions, jobs & job status, and experiment results. The server will store data using a postgres database. The database Schema will include tables for experiments (storing configuration and status), jobs (tracking individual benchmark runs), agents (registration and capabilities), and results (metrics and outputs). We'll use SQLite with SQLAlchemy for the ORM, with indexes optimized for polling queries.
 
 ## Ruckus agent
 The ruckus agent will be the worker component that actually runs benchmarks. We'll create a flexible agent that can operate in three modes: white-box (full control over model loading and metrics), gray-box (working with existing model APIs like vLLM), and black-box (minimal API-only access). Each ruckus agent will advertise its capabilities to the ruckus server, execute jobs asynchronously, report progress through HTTP callbacks, and collect whatever metrics its access level allows.
+
+The ruckus agent does not store any information in persistent storage. It manages state entirely in memory, and provides APIs for the ruckus server to fetch/poll for information from the agent to store in its datastore.
 
 The Agent Protocol will define how the ruckus server and ruckus agents communicate, including job request/response formats, capability negotiation protocols, progress reporting stages, and metric definitions. This shared protocol ensures compatibility across different agent implementations.
 
