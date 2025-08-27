@@ -1,23 +1,32 @@
 """Experiment management endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 from datetime import datetime
 
-from ruckus_common.models import ExperimentSpec
+from ruckus_common.models import (
+    ExperimentSpec, ExperimentSubmission, ExperimentSubmissionResponse,
+    ExperimentExecution
+)
+from ....core.orchestrator import OrchestrationError
 
 router = APIRouter()
 
 
 @router.post("/")
-async def create_experiment(experiment: ExperimentSpec):
-    """Create a new experiment."""
-    # TODO: Implement experiment creation
-    return {
-        "experiment_id": experiment.experiment_id,
-        "status": "created",
-        "jobs_queued": 0,
-    }
+async def create_experiment(request: Request, submission: ExperimentSubmission) -> ExperimentSubmissionResponse:
+    """Submit a new experiment for execution."""
+    server = request.app.state.server
+    if not server or not server.orchestrator:
+        raise HTTPException(status_code=503, detail="Server not properly initialized")
+    
+    try:
+        response = await server.orchestrator.submit_experiment(submission)
+        return response
+    except OrchestrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @router.get("/")
@@ -44,17 +53,32 @@ async def get_experiment(experiment_id: str):
 
 
 @router.get("/{experiment_id}/status")
-async def get_experiment_status(experiment_id: str):
+async def get_experiment_status(request: Request, experiment_id: str):
     """Get experiment execution status."""
-    # TODO: Implement status retrieval
-    return {
-        "experiment_id": experiment_id,
-        "status": "running",
-        "progress": 0.0,
-        "jobs_total": 0,
-        "jobs_completed": 0,
-        "jobs_failed": 0,
-    }
+    server = request.app.state.server
+    if not server or not server.orchestrator:
+        raise HTTPException(status_code=503, detail="Server not properly initialized")
+    
+    try:
+        execution = await server.orchestrator.get_experiment_execution(experiment_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        return {
+            "experiment_id": experiment_id,
+            "status": execution.status,
+            "progress": execution.progress_percent,
+            "jobs_total": execution.total_jobs,
+            "jobs_completed": len(execution.completed_jobs),
+            "jobs_failed": len(execution.failed_jobs),
+            "jobs_running": len(execution.running_jobs),
+            "jobs_queued": len(execution.queued_jobs),
+            "started_at": execution.started_at,
+            "completed_at": execution.completed_at,
+            "error_summary": execution.error_summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @router.delete("/{experiment_id}")

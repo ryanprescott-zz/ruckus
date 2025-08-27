@@ -207,3 +207,94 @@ class StorageBackend(ABC):
     async def get_jobs_for_agent(self, agent_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get jobs assigned to a specific agent."""
         pass
+    
+    # Orchestration methods (to be implemented by backends)
+    async def store_experiment_execution(self, execution) -> bool:
+        """Store experiment execution state.
+        
+        Args:
+            execution: ExperimentExecution object
+            
+        Returns:
+            True if stored successfully
+        """
+        # Default implementation stores as JSON in experiment table
+        return await self.create_experiment(
+            execution.experiment_id,
+            execution.spec.name,
+            execution.spec.description or "",
+            {
+                "spec": execution.spec.dict(),
+                "execution": execution.dict()
+            }
+        )
+    
+    async def update_experiment_execution(self, execution) -> bool:
+        """Update experiment execution state.
+        
+        Args:
+            execution: ExperimentExecution object
+            
+        Returns:
+            True if updated successfully
+        """
+        # Default implementation - subclasses should override for efficiency
+        return await self.update_experiment_status(execution.experiment_id, execution.status)
+    
+    async def get_experiment_execution(self, experiment_id: str):
+        """Get experiment execution state.
+        
+        Args:
+            experiment_id: ID of experiment
+            
+        Returns:
+            ExperimentExecution object or None if not found
+        """
+        # Default implementation - subclasses should override
+        experiment_data = await self.get_experiment(experiment_id)
+        if not experiment_data or "execution" not in experiment_data.get("config", {}):
+            return None
+        
+        # This is a simplified version - real implementation would reconstruct the object
+        return None
+    
+    async def create_job_spec(self, job_spec) -> bool:
+        """Create a job specification.
+        
+        Args:
+            job_spec: JobSpec object
+            
+        Returns:
+            True if created successfully
+        """
+        return await self.create_job(
+            job_spec.job_id,
+            job_spec.experiment_id,
+            job_spec.dict()
+        )
+    
+    async def get_job_spec(self, job_id: str):
+        """Get job specification.
+        
+        Args:
+            job_id: Job ID
+            
+        Returns:
+            JobSpec object or None if not found
+        """
+        # Default implementation - subclasses should override
+        return None
+    
+    async def update_job_spec(self, job_spec) -> bool:
+        """Update job specification.
+        
+        Args:
+            job_spec: JobSpec object
+            
+        Returns:
+            True if updated successfully
+        """
+        return await self.update_job_status(
+            job_spec.job_id,
+            job_spec.status.value if hasattr(job_spec.status, 'value') else str(job_spec.status)
+        )

@@ -17,6 +17,7 @@ from ruckus_common.models import RegisteredAgentInfo, AgentStatus, AgentStatusEn
 from .agent import AgentProtocolUtility
 from .clients.http import ConnectionError, ServiceUnavailableError
 from .clients.simple_http import SimpleHttpClient
+from .orchestrator import ExperimentOrchestrator
 
 
 class AgentAlreadyRegisteredException(Exception):
@@ -52,6 +53,7 @@ class RuckusServer:
         self.settings = settings or RuckusServerSettings()
         self.logger = self._setup_logging()
         self.storage: Optional[StorageBackend] = None
+        self.orchestrator: Optional[ExperimentOrchestrator] = None
         
         self.logger.info("RUCKUS server initialized")
     
@@ -136,6 +138,9 @@ class RuckusServer:
         
         # Initialize the storage backend
         await self.storage.initialize()
+        
+        # Initialize orchestrator
+        self.orchestrator = ExperimentOrchestrator(self.storage)
         
         self.logger.info(f"Storage backend ({self.settings.storage_backend}) initialized successfully")
     

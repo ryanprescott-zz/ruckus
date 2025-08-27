@@ -69,28 +69,160 @@ class TimestampedModel(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-# Experiment Models
+# Parameter Sweep Models
+class ParameterSweep(BaseModel):
+    """Definition of parameter sweep configurations."""
+    name: str
+    values: List[Any]  # List of values to sweep over
+    sweep_type: str = "grid"  # "grid", "random", "adaptive"
+    
+class ParameterGrid(BaseModel):
+    """Complete parameter grid specification."""
+    parameters: Dict[str, ParameterSweep] = Field(default_factory=dict)
+    samples_per_config: int = Field(default=1, ge=1, description="Number of repetitions per parameter combination")
+    random_seed: Optional[int] = None
+    
+    def generate_configurations(self) -> List[Dict[str, Any]]:
+        """Generate all parameter combinations for this grid."""
+        if not self.parameters:
+            return [{}] * self.samples_per_config
+            
+        import itertools
+        param_names = list(self.parameters.keys())
+        param_values = [self.parameters[name].values for name in param_names]
+        
+        configs = []
+        for combination in itertools.product(*param_values):
+            config = dict(zip(param_names, combination))
+            # Repeat each config samples_per_config times
+            for sample_idx in range(self.samples_per_config):
+                config_with_sample = config.copy()
+                config_with_sample["_sample_idx"] = sample_idx
+                if self.random_seed is not None:
+                    config_with_sample["_seed"] = self.random_seed + hash(str(config)) + sample_idx
+                configs.append(config_with_sample)
+        
+        return configs
+
+# Agent Selection Models  
+class AgentRequirements(BaseModel):
+    """Requirements for agent selection."""
+    # Model requirements
+    required_models: List[str] = Field(default_factory=list, description="Models that must be available")
+    preferred_models: List[str] = Field(default_factory=list, description="Preferred models (bonus in scoring)")
+    
+    # Framework requirements
+    required_frameworks: List[str] = Field(default_factory=list)
+    preferred_frameworks: List[str] = Field(default_factory=list)
+    
+    # Hardware requirements
+    min_gpu_count: int = Field(default=0, ge=0)
+    min_gpu_memory_mb: Optional[int] = None
+    preferred_gpu_types: List[str] = Field(default_factory=list)
+    
+    # Agent capabilities
+    required_capabilities: List[str] = Field(default_factory=list)
+    preferred_capabilities: List[str] = Field(default_factory=list)
+    
+    # Performance requirements  
+    max_concurrent_jobs: Optional[int] = None
+    agent_types: List[AgentType] = Field(default_factory=list, description="Allowed agent types")
+    
+    # Exclusions
+    excluded_agents: List[str] = Field(default_factory=list, description="Agent IDs to exclude")
+    excluded_tags: List[str] = Field(default_factory=list)
+
+# Result Specification Models
+class ExpectedOutput(BaseModel):
+    """Specification of expected job outputs."""
+    required_metrics: List[str] = Field(default_factory=list, description="Metrics that must be captured")
+    optional_metrics: List[str] = Field(default_factory=list, description="Additional metrics to capture if available")
+    artifacts: List[str] = Field(default_factory=list, description="Files/artifacts to collect")
+    output_format: str = "json"  # "json", "csv", "parquet"
+    
+class AggregationStrategy(BaseModel):
+    """How to aggregate results across multiple jobs."""
+    method: str = "collect_all"  # "collect_all", "average", "best", "statistical"
+    group_by: List[str] = Field(default_factory=list, description="Fields to group results by")
+    metrics_aggregation: Dict[str, str] = Field(default_factory=dict, description="Per-metric aggregation (mean, median, max, etc.)")
+
+# Enhanced Experiment Models
 class ExperimentSpec(TimestampedModel):
-    """Specification for a benchmark experiment."""
+    """Enhanced specification for a benchmark experiment with orchestration support."""
     experiment_id: str
     name: str
     description: Optional[str] = None
-    models: List[str]
-    frameworks: List[str]
-    hardware_targets: List[str] = Field(default_factory=lambda: ["any"])
+    
+    # Target models and task specification
+    models: List[str]  # Models to benchmark
     task_type: TaskType
     task_config: Dict[str, Any] = Field(default_factory=dict)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    constraints: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Parameter sweep configuration
+    parameter_grid: ParameterGrid = Field(default_factory=ParameterGrid)
+    base_parameters: Dict[str, Any] = Field(default_factory=dict, description="Base parameters applied to all jobs")
+    
+    # Agent selection requirements
+    agent_requirements: AgentRequirements = Field(default_factory=AgentRequirements)
+    
+    # Output and aggregation specification
+    expected_output: ExpectedOutput = Field(default_factory=ExpectedOutput)
+    aggregation_strategy: AggregationStrategy = Field(default_factory=AggregationStrategy)
+    
+    # Execution configuration
     priority: int = Field(default=0, ge=0, le=10)
+    timeout_seconds: int = Field(default=3600, gt=0)
+    max_retries: int = Field(default=2, ge=0)
+    max_parallel_jobs: Optional[int] = Field(default=None, description="Max concurrent jobs for this experiment")
+    
+    # Metadata
     owner: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    constraints: Dict[str, Any] = Field(default_factory=dict)
 
     @validator("experiment_id")
     def validate_experiment_id(cls, v):
         if not v or not v.strip():
             raise ValueError("experiment_id cannot be empty")
         return v
+    
+    def estimate_job_count(self) -> int:
+        """Estimate total number of jobs this experiment will generate."""
+        config_count = len(self.parameter_grid.generate_configurations())
+        return config_count * len(self.models)
+
+# Orchestration Execution Models
+class ExperimentExecution(TimestampedModel):
+    """Tracks the server-side execution state of an experiment."""
+    experiment_id: str
+    spec: ExperimentSpec
+    status: str = "pending"  # pending, planning, running, completed, failed, cancelled
+    
+    # Job planning results (server maintains the job queue)
+    total_jobs: int = 0
+    planned_jobs: List[str] = Field(default_factory=list, description="List of all planned job IDs")
+    
+    # Execution tracking (server-side job queue management)
+    queued_jobs: List[str] = Field(default_factory=list, description="Jobs waiting to be dispatched")
+    running_jobs: Dict[str, str] = Field(default_factory=dict, description="job_id -> agent_id mapping")
+    completed_jobs: List[str] = Field(default_factory=list)
+    failed_jobs: List[str] = Field(default_factory=list)
+    
+    # Progress tracking
+    progress_percent: float = Field(default=0.0, ge=0.0, le=100.0)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    
+    # Results aggregation
+    results_summary: Dict[str, Any] = Field(default_factory=dict)
+    error_summary: Optional[str] = None
+    
+    def calculate_progress(self) -> float:
+        """Calculate current progress percentage."""
+        if self.total_jobs == 0:
+            return 0.0
+        completed = len(self.completed_jobs) + len(self.failed_jobs)
+        return min(100.0, (completed / self.total_jobs) * 100.0)
 
 
 # Job Models
@@ -168,6 +300,77 @@ class JobResult(BaseModel):
         if v < 0:
             raise ValueError("duration_seconds must be non-negative")
         return v
+
+
+# Orchestrator Communication Models
+class AgentScore(BaseModel):
+    """Agent compatibility score for a specific job."""
+    agent_id: str
+    agent_name: str
+    score: float = Field(ge=0.0, le=100.0, description="Compatibility score (0-100)")
+    
+    # Score breakdown
+    model_compatibility: float = 0.0
+    framework_compatibility: float = 0.0
+    hardware_suitability: float = 0.0
+    capability_match: float = 0.0
+    availability_bonus: float = 0.0
+    
+    # Detailed reasons
+    compatible_models: List[str] = Field(default_factory=list)
+    missing_requirements: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    estimated_queue_time_seconds: Optional[float] = None
+
+class JobAssignment(BaseModel):
+    """Assignment of a job to a specific agent."""
+    job_id: str
+    agent_id: str
+    agent_name: str
+    assigned_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Assignment details
+    score: float = Field(description="Agent compatibility score")
+    expected_duration_seconds: Optional[float] = None
+    assignment_reason: str = "automatic"  # "automatic", "manual", "retry", "rebalance"
+    
+    # Job context for the agent
+    job_context: Dict[str, Any] = Field(default_factory=dict, description="Additional context for job execution")
+
+class ExperimentSubmission(BaseModel):
+    """User submission of an experiment to the orchestrator."""
+    spec: ExperimentSpec
+    submit_immediately: bool = Field(default=True, description="Whether to start execution immediately")
+    dry_run: bool = Field(default=False, description="If true, only plan jobs without executing")
+
+class ExperimentSubmissionResponse(BaseModel):
+    """Response to experiment submission."""
+    experiment_id: str
+    status: str  # "accepted", "rejected", "queued"
+    message: Optional[str] = None
+    
+    # Planning results
+    estimated_jobs: int = 0
+    estimated_duration_hours: Optional[float] = None
+    estimated_cost: Optional[float] = None
+    
+    # Execution tracking URL/info
+    tracking_url: Optional[str] = None
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+
+class AgentMatchingRequest(BaseModel):
+    """Request to find compatible agents for jobs."""
+    jobs: List[str] = Field(description="Job IDs to find agents for")
+    requirements: AgentRequirements
+    max_agents_per_job: int = Field(default=3, ge=1, description="Max agent candidates to return per job")
+    include_unavailable: bool = Field(default=False, description="Include agents that are currently busy")
+
+class AgentMatchingResponse(BaseModel):
+    """Response with agent compatibility scores."""
+    job_assignments: Dict[str, List[AgentScore]] = Field(default_factory=dict, description="job_id -> list of compatible agents")
+    unassignable_jobs: List[str] = Field(default_factory=list, description="Jobs with no compatible agents")
+    warnings: List[str] = Field(default_factory=list)
+    processed_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 # Agent Models
