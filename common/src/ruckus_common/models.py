@@ -216,6 +216,7 @@ class ExperimentExecution(TimestampedModel):
     # Results aggregation
     results_summary: Dict[str, Any] = Field(default_factory=dict)
     error_summary: Optional[str] = None
+    aggregated_results: Optional[Dict[str, Any]] = Field(default=None, description="Aggregated results from all completed jobs")
     
     def calculate_progress(self) -> float:
         """Calculate current progress percentage."""
@@ -242,6 +243,9 @@ class JobSpec(TimestampedModel):
     priority: int = Field(default=0, ge=0, le=10)
     status: JobStatus = JobStatus.QUEUED
     retry_count: int = Field(default=0, ge=0)
+    
+    # Results (populated when job completes)
+    results: Optional[Dict[str, Any]] = Field(default=None, description="Job execution results and metrics")
 
 
 class JobRequest(BaseModel):

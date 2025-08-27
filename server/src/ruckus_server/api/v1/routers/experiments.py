@@ -89,11 +89,20 @@ async def cancel_experiment(experiment_id: str):
 
 
 @router.get("/{experiment_id}/results")
-async def get_experiment_results(experiment_id: str):
+async def get_experiment_results(request: Request, experiment_id: str):
     """Get aggregated experiment results."""
-    # TODO: Implement results aggregation
-    return {
-        "experiment_id": experiment_id,
-        "results": {},
-        "summary": {},
-    }
+    server = request.app.state.server
+    if not server or not server.orchestrator:
+        raise HTTPException(status_code=503, detail="Server not properly initialized")
+    
+    try:
+        results = await server.orchestrator.get_experiment_results(experiment_id)
+        if not results:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        return {
+            "experiment_id": experiment_id,
+            **results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

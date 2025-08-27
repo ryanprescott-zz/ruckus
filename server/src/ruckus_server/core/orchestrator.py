@@ -264,12 +264,14 @@ class ExperimentOrchestrator:
             score=0.0
         )
         
-        # Check required models (if agent has model info)
-        if hasattr(agent, 'models') and agent.models:
-            agent_models = [model.get('name', '') for model in agent.models]
+        # Check required models (from system_info)
+        system_info = agent.system_info or {}
+        agent_models = system_info.get('models', [])
+        if agent_models:
+            model_names = [model.get('name', '') if isinstance(model, dict) else str(model) for model in agent_models]
             
             for required_model in requirements.required_models:
-                if required_model in agent_models:
+                if required_model in model_names:
                     score.model_compatibility += 20.0
                     score.compatible_models.append(required_model)
                 else:
@@ -277,13 +279,26 @@ class ExperimentOrchestrator:
             
             # Bonus for preferred models
             for preferred_model in requirements.preferred_models:
-                if preferred_model in agent_models:
+                if preferred_model in model_names:
                     score.model_compatibility += 5.0
+        else:
+            # If no models specified, add missing requirements
+            for required_model in requirements.required_models:
+                score.missing_requirements.append(f"model:{required_model}")
         
-        # Check frameworks
-        if hasattr(agent, 'frameworks') and agent.frameworks:
-            agent_frameworks = [fw.get('name', '') for fw in agent.frameworks]
-            
+        # Check frameworks (from system_info and capabilities)
+        system_frameworks = system_info.get('frameworks', [])
+        capabilities_frameworks = agent.capabilities.get('frameworks', []) if agent.capabilities else []
+        
+        # Combine framework sources
+        agent_frameworks = []
+        for fw_list in [system_frameworks, capabilities_frameworks]:
+            for fw in fw_list:
+                fw_name = fw.get('name', fw) if isinstance(fw, dict) else str(fw)
+                if fw_name not in agent_frameworks:
+                    agent_frameworks.append(fw_name)
+        
+        if agent_frameworks:
             for required_fw in requirements.required_frameworks:
                 if required_fw in agent_frameworks:
                     score.framework_compatibility += 15.0
@@ -294,10 +309,15 @@ class ExperimentOrchestrator:
             for preferred_fw in requirements.preferred_frameworks:
                 if preferred_fw in agent_frameworks:
                     score.framework_compatibility += 3.0
+        else:
+            # If no frameworks specified, add missing requirements
+            for required_fw in requirements.required_frameworks:
+                score.missing_requirements.append(f"framework:{required_fw}")
         
-        # Check GPU requirements
-        if hasattr(agent, 'gpus') and agent.gpus:
-            gpu_count = len(agent.gpus)
+        # Check GPU requirements (from system_info)
+        agent_gpus = system_info.get('gpus', [])
+        if agent_gpus:
+            gpu_count = len(agent_gpus)
             if gpu_count >= requirements.min_gpu_count:
                 score.hardware_suitability += 10.0
             else:
@@ -305,14 +325,18 @@ class ExperimentOrchestrator:
                 
             # Check GPU memory if specified
             if requirements.min_gpu_memory_mb:
-                max_gpu_memory = max((gpu.get('memory_mb', 0) for gpu in agent.gpus), default=0)
+                max_gpu_memory = max((gpu.get('memory_mb', 0) if isinstance(gpu, dict) else 0 for gpu in agent_gpus), default=0)
                 if max_gpu_memory >= requirements.min_gpu_memory_mb:
                     score.hardware_suitability += 5.0
                 else:
                     score.missing_requirements.append(f"min_gpu_memory:{requirements.min_gpu_memory_mb}MB")
+        else:
+            # If no GPUs but GPU required, add missing requirement
+            if requirements.min_gpu_count > 0:
+                score.missing_requirements.append(f"min_gpu_count:{requirements.min_gpu_count}")
         
         # Check agent type compatibility
-        if requirements.agent_types and hasattr(agent, 'agent_type'):
+        if requirements.agent_types and agent.agent_type:
             if agent.agent_type in requirements.agent_types:
                 score.capability_match += 10.0
             else:
@@ -453,8 +477,10 @@ class ExperimentOrchestrator:
                 self.logger.warning(f"Received job update for unknown experiment {experiment_id}")
                 return
             
-            # Update job status
+            # Update job status and results
             job_spec.status = status
+            if result_data:
+                job_spec.results = result_data
             await self.storage.update_job_spec(job_spec)
             
             # Update experiment execution state
@@ -472,7 +498,10 @@ class ExperimentOrchestrator:
                 if not execution.running_jobs and not execution.queued_jobs:
                     execution.status = "completed"
                     execution.completed_at = datetime.utcnow()
-                    self.logger.info(f"Experiment {experiment_id} completed")
+                    
+                    # Aggregate results for completed experiment
+                    await self._aggregate_experiment_results(execution)
+                    self.logger.info(f"Experiment {experiment_id} completed with result aggregation")
             
             # Update progress and persist
             execution.progress_percent = execution.calculate_progress()
@@ -480,3 +509,178 @@ class ExperimentOrchestrator:
             
         except Exception as e:
             self.logger.error(f"Error handling job update for {job_id}: {e}")
+    
+    async def _aggregate_experiment_results(self, execution: ExperimentExecution):
+        """Aggregate results from all completed jobs in an experiment.
+        
+        Args:
+            execution: Experiment execution to aggregate results for
+        """
+        try:
+            self.logger.info(f"Aggregating results for experiment {execution.experiment_id}")
+            
+            # Collect results from all completed jobs
+            job_results = []
+            for job_id in execution.completed_jobs:
+                job_spec = await self.storage.get_job_spec(job_id)
+                if job_spec and hasattr(job_spec, 'results') and job_spec.results:
+                    job_results.append({
+                        'job_id': job_id,
+                        'model': job_spec.model,
+                        'parameters': job_spec.parameters,
+                        'results': job_spec.results
+                    })
+            
+            # Generate aggregated summary
+            summary = await self._generate_experiment_summary(execution, job_results)
+            execution.aggregated_results = {
+                'job_results': job_results,
+                'summary': summary,
+                'aggregated_at': datetime.utcnow().isoformat(),
+                'total_jobs': execution.total_jobs,
+                'completed_jobs': len(execution.completed_jobs),
+                'failed_jobs': len(execution.failed_jobs)
+            }
+            
+            self.logger.info(f"Aggregated {len(job_results)} job results for experiment {execution.experiment_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Error aggregating results for experiment {execution.experiment_id}: {e}")
+    
+    async def _generate_experiment_summary(self, execution: ExperimentExecution, job_results: list) -> dict:
+        """Generate summary statistics and insights from job results.
+        
+        Args:
+            execution: Experiment execution
+            job_results: List of job results with model, parameters, and metrics
+            
+        Returns:
+            Summary dictionary with aggregated metrics and insights
+        """
+        if not job_results:
+            return {
+                'status': 'no_results',
+                'message': 'No completed jobs with results'
+            }
+        
+        try:
+            # Extract metrics from job results
+            all_metrics = {}
+            model_performance = {}
+            parameter_impact = {}
+            
+            for job_result in job_results:
+                model = job_result['model']
+                parameters = job_result['parameters']
+                results = job_result['results']
+                
+                # Track model performance
+                if model not in model_performance:
+                    model_performance[model] = []
+                model_performance[model].append(results)
+                
+                # Collect all metrics
+                if isinstance(results, dict):
+                    for metric_name, metric_value in results.items():
+                        if isinstance(metric_value, (int, float)):
+                            if metric_name not in all_metrics:
+                                all_metrics[metric_name] = []
+                            all_metrics[metric_name].append({
+                                'value': metric_value,
+                                'model': model,
+                                'parameters': parameters
+                            })
+            
+            # Calculate aggregate statistics
+            metric_summaries = {}
+            for metric_name, values in all_metrics.items():
+                numeric_values = [v['value'] for v in values]
+                if numeric_values:
+                    metric_summaries[metric_name] = {
+                        'mean': sum(numeric_values) / len(numeric_values),
+                        'min': min(numeric_values),
+                        'max': max(numeric_values),
+                        'count': len(numeric_values)
+                    }
+            
+            # Model comparison
+            model_comparison = {}
+            for model, results_list in model_performance.items():
+                model_comparison[model] = {
+                    'job_count': len(results_list),
+                    'avg_metrics': self._calculate_avg_metrics(results_list)
+                }
+            
+            return {
+                'status': 'success',
+                'metric_summaries': metric_summaries,
+                'model_comparison': model_comparison,
+                'total_successful_jobs': len(job_results),
+                'unique_models_tested': len(model_performance),
+                'parameter_combinations': len(set(str(jr['parameters']) for jr in job_results))
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error generating experiment summary: {e}")
+            return {
+                'status': 'error',
+                'message': f"Failed to generate summary: {str(e)}"
+            }
+    
+    def _calculate_avg_metrics(self, results_list: list) -> dict:
+        """Calculate average metrics across multiple job results.
+        
+        Args:
+            results_list: List of result dictionaries
+            
+        Returns:
+            Dictionary with averaged metrics
+        """
+        if not results_list:
+            return {}
+        
+        # Collect all metric values
+        metric_totals = {}
+        metric_counts = {}
+        
+        for results in results_list:
+            if isinstance(results, dict):
+                for metric_name, metric_value in results.items():
+                    if isinstance(metric_value, (int, float)):
+                        if metric_name not in metric_totals:
+                            metric_totals[metric_name] = 0
+                            metric_counts[metric_name] = 0
+                        metric_totals[metric_name] += metric_value
+                        metric_counts[metric_name] += 1
+        
+        # Calculate averages
+        avg_metrics = {}
+        for metric_name in metric_totals:
+            avg_metrics[metric_name] = metric_totals[metric_name] / metric_counts[metric_name]
+        
+        return avg_metrics
+    
+    async def get_experiment_results(self, experiment_id: str) -> Optional[dict]:
+        """Get aggregated results for a completed experiment.
+        
+        Args:
+            experiment_id: ID of experiment to get results for
+            
+        Returns:
+            Aggregated results dictionary or None if not found/not completed
+        """
+        execution = await self.get_experiment_execution(experiment_id)
+        if not execution:
+            return None
+        
+        if execution.status != "completed":
+            return {
+                'status': 'not_completed',
+                'current_status': execution.status,
+                'message': 'Experiment has not completed yet'
+            }
+        
+        return execution.aggregated_results or {
+            'status': 'no_results',
+            'message': 'Results not yet aggregated'
+        }
