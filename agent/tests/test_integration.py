@@ -1,6 +1,7 @@
 """Integration tests for end-to-end agent functionality."""
 
 import pytest
+import pytest_asyncio
 import tempfile
 import shutil
 import json
@@ -12,7 +13,7 @@ from datetime import datetime
 from ruckus_agent.core.agent import Agent
 from ruckus_agent.core.config import Settings
 from ruckus_agent.core.storage import InMemoryStorage
-from ruckus_common.models import AgentType, JobRequest, TaskType
+from ruckus_common.models import AgentType, JobRequest, TaskType, AgentStatusEnum
 
 
 class TestAgentIntegration:
@@ -67,13 +68,48 @@ class TestAgentIntegration:
         """Create in-memory storage for testing."""
         return InMemoryStorage()
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def agent(self, agent_settings, storage):
         """Create and start an agent for testing."""
         agent = Agent(agent_settings, storage)
         
-        # Mock capability detection to avoid hardware dependencies
-        with patch.object(agent, '_detect_capabilities', new_callable=AsyncMock) as mock_detect:
+        # Mock capability detection to populate test data
+        async def mock_detect_capabilities():
+            # Mock detected data similar to what AgentDetector would return
+            mock_detected_data = {
+                "system": {"hostname": "test-agent", "os": "Linux", "python_version": "3.12", "total_memory_gb": 16.0},
+                "cpu": {"cores": 4, "model": "Test CPU"},
+                "gpus": [{"name": "Tesla V100", "memory_mb": 16384}],
+                "frameworks": [{"name": "pytorch", "version": "2.0"}, {"name": "vllm", "version": "0.2.0"}],
+                "models": [
+                    {
+                        "name": "test-llama-7b",
+                        "path": f"{agent_settings.model_cache_dir}/test-llama-7b",
+                        "model_type": "llama",
+                        "architecture": "LlamaForCausalLM",
+                        "format": "pytorch",
+                        "framework_compatible": ["vllm", "transformers"],
+                        "size_gb": 13.5
+                    }
+                ],
+                "hooks": [{"name": "nvidia-smi"}],
+                "metrics": [{"name": "latency"}, {"name": "memory_usage"}]
+            }
+            
+            # Store system info
+            await agent.storage.store_system_info(mock_detected_data)
+            
+            # Store capabilities
+            capabilities = {
+                "agent_type": "white_box",
+                "gpu_count": len(mock_detected_data["gpus"]),
+                "frameworks": [f["name"] for f in mock_detected_data["frameworks"]],
+                "max_concurrent_jobs": agent.settings.max_concurrent_jobs,
+                "monitoring_available": bool(mock_detected_data["hooks"]),
+            }
+            await agent.storage.store_capabilities(capabilities)
+        
+        with patch.object(agent, '_detect_capabilities', side_effect=mock_detect_capabilities):
             await agent.start()
         
         yield agent
@@ -154,9 +190,9 @@ class TestAgentIntegration:
         status = await agent.get_status()
         
         assert status.agent_id == agent.agent_id
-        assert status.status == "idle"  # Should start idle
+        assert status.status == AgentStatusEnum.IDLE  # Should start idle
         assert len(status.running_jobs) == 0
-        assert status.queued_jobs == 0
+        assert status.queued_jobs == []
         assert status.uptime_seconds >= 0
         assert isinstance(status.timestamp, datetime)
     
@@ -180,7 +216,7 @@ class TestAgentIntegration:
         
         # Check status update
         status = await agent.get_status()
-        assert status.queued_jobs == 1
+        assert len(status.queued_jobs) == 1
         assert "test-job-123" in agent.queued_job_ids
         
         # Wait a moment for job to potentially start processing
@@ -229,7 +265,7 @@ class TestAgentIntegration:
         
         # Check crashed status
         status = await agent.get_status()
-        assert status.status == "crashed"
+        assert status.status == AgentStatusEnum.ERROR
         
         # Clear error reports (which should reset crash state)
         cleared_count = await agent.clear_error_reports()
@@ -239,7 +275,7 @@ class TestAgentIntegration:
         assert agent.crash_reason is None
         
         status = await agent.get_status()
-        assert status.status == "idle"
+        assert status.status == AgentStatusEnum.IDLE
     
     @pytest.mark.asyncio
     async def test_concurrent_job_limits(self, agent):
@@ -264,7 +300,7 @@ class TestAgentIntegration:
         
         # Check status
         status = await agent.get_status()
-        assert status.queued_jobs == 3
+        assert len(status.queued_jobs) == 3
         
         # Wait for processing to start
         await asyncio.sleep(0.2)
@@ -343,6 +379,9 @@ class TestAgentIntegration:
         # Shutdown agent
         await agent.stop()
         
+        # Wait a moment for tasks to finish cancelling
+        await asyncio.sleep(0.1)
+        
         # Verify cleanup
         for task in agent.tasks:
             assert task.cancelled() or task.done()
@@ -373,7 +412,7 @@ class TestAgentStatusTransitions:
         try:
             # Should start idle
             status = await agent.get_status()
-            assert status.status == "idle"
+            assert status.status == AgentStatusEnum.IDLE
             assert len(status.running_jobs) == 0
             
             # Add a running job directly (simulating job execution)
@@ -384,7 +423,7 @@ class TestAgentStatusTransitions:
             
             # Should now be active
             status = await agent.get_status()
-            assert status.status == "active"
+            assert status.status == AgentStatusEnum.ACTIVE
             assert len(status.running_jobs) == 1
             
         finally:
@@ -402,7 +441,7 @@ class TestAgentStatusTransitions:
             # Initially not crashed
             assert not agent.crashed
             status = await agent.get_status()
-            assert status.status == "idle"
+            assert status.status == AgentStatusEnum.IDLE
             
             # Simulate crash
             agent.crashed = True
@@ -410,7 +449,7 @@ class TestAgentStatusTransitions:
             
             # Status should reflect crash
             status = await agent.get_status()
-            assert status.status == "crashed"
+            assert status.status == AgentStatusEnum.ERROR
             
             # Create an error report to test recovery
             from ruckus_agent.core.models import JobErrorReport, SystemMetricsSnapshot
@@ -438,7 +477,7 @@ class TestAgentStatusTransitions:
             
             # Status should be back to normal
             status = await agent.get_status()
-            assert status.status == "idle"
+            assert status.status == AgentStatusEnum.IDLE
             
         finally:
             await agent.stop()
@@ -540,8 +579,41 @@ class TestEndToEndScenarios:
         
         agent = Agent(settings, storage)
         
-        # Start agent with mocked capabilities
-        with patch.object(agent, '_detect_capabilities'):
+        # Start agent with mocked capabilities that populate test data
+        async def mock_detect_capabilities():
+            # Mock detected data similar to other tests
+            mock_detected_data = {
+                "system": {"hostname": "test-agent", "os": "Linux", "python_version": "3.12", "total_memory_gb": 16.0},
+                "cpu": {"cores": 4, "model": "Test CPU"},
+                "gpus": [{"name": "Tesla V100", "memory_mb": 16384}],
+                "frameworks": [{"name": "pytorch", "version": "2.0"}, {"name": "vllm", "version": "0.2.0"}],
+                "models": [
+                    {
+                        "name": "test-llama-7b",
+                        "path": f"{temp_models_dir}/test-llama-7b",
+                        "model_type": "llama",
+                        "architecture": "LlamaForCausalLM",
+                        "format": "pytorch",
+                        "framework_compatible": ["vllm", "transformers"],
+                        "size_gb": 13.5
+                    }
+                ],
+                "hooks": [{"name": "nvidia-smi"}],
+                "metrics": [{"name": "latency"}, {"name": "memory_usage"}]
+            }
+            
+            # Store system info and capabilities
+            await agent.storage.store_system_info(mock_detected_data)
+            capabilities = {
+                "agent_type": "white_box",
+                "gpu_count": len(mock_detected_data["gpus"]),
+                "frameworks": [f["name"] for f in mock_detected_data["frameworks"]],
+                "max_concurrent_jobs": agent.settings.max_concurrent_jobs,
+                "monitoring_available": bool(mock_detected_data["hooks"]),
+            }
+            await agent.storage.store_capabilities(capabilities)
+        
+        with patch.object(agent, '_detect_capabilities', side_effect=mock_detect_capabilities):
             await agent.start()
         
         try:
@@ -652,7 +724,7 @@ class TestEndToEndScenarios:
                 
                 # Verify agent maintains consistent state
                 assert status.agent_id == agent.agent_id
-                assert isinstance(status.queued_jobs, int)
+                assert isinstance(status.queued_jobs, list)
                 assert isinstance(status.running_jobs, list)
                 assert len(status.running_jobs) <= settings.max_concurrent_jobs
                 
