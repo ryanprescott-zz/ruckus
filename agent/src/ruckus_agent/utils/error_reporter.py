@@ -212,7 +212,7 @@ class ErrorReporter:
             # Error details
             error_type=error_type,
             error_message=str(error),
-            error_traceback=traceback.format_exc(),
+            error_traceback=self._format_error_traceback(error),
             
             # Job context
             model_name=model_name,
@@ -245,6 +245,22 @@ class ErrorReporter:
         if job_id in self.failure_contexts:
             del self.failure_contexts[job_id]
             logger.debug(f"Cleaned up tracking for job {job_id}")
+    
+    def _format_error_traceback(self, error: Exception) -> str:
+        """Format error traceback, handling both active exceptions and standalone errors."""
+        try:
+            # First try to get the current traceback if we're in an exception context
+            current_tb = traceback.format_exc()
+            if current_tb != "NoneType: None\n":
+                return current_tb
+            
+            # If no active exception, create one from the error
+            error_type = type(error).__name__
+            error_msg = str(error)
+            return f"{error_type}: {error_msg}\n"
+        except Exception:
+            # Fallback
+            return f"{type(error).__name__}: {str(error)}\n"
     
     def _classify_error(self, error: Exception, snapshot: SystemMetricsSnapshot) -> str:
         """Classify the type of error based on exception and system state."""

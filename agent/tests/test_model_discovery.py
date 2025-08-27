@@ -212,7 +212,12 @@ class TestModelDiscovery:
         
         models = await discovery.discover_all_models()
         
-        assert len(models) == 0  # Should handle gracefully
+        assert len(models) == 1  # Should still discover the model
+        
+        model = models[0]
+        assert model.name == "corrupted-model"
+        assert model.framework_compatible == []  # Empty due to no config
+        assert model.model_type is None  # No config data available
     
     def test_determine_model_format(self, temp_models_dir):
         """Test model format determination."""

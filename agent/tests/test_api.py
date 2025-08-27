@@ -114,19 +114,20 @@ class TestAgentAPI:
         assert response.status_code == 200
         
         data = response.json()
-        assert data["agent_id"] == test_agent.agent_id
-        assert data["agent_name"] == test_agent.agent_name
-        assert data["agent_type"] == "white_box"
+        agent_info = data["agent_info"]
+        assert agent_info["agent_id"] == test_agent.agent_id
+        assert agent_info["agent_name"] == test_agent.agent_name
+        assert agent_info["agent_type"] == "white_box"
         
         # Check system info structure
-        system_info = data["system_info"]
+        system_info = agent_info["system_info"]
         assert system_info["system"]["hostname"] == "test-agent"
         assert system_info["cpu"]["cores"] == 4
         assert len(system_info["gpus"]) == 1
         assert system_info["gpus"][0]["name"] == "Tesla"
         
         # Check capabilities structure
-        capabilities = data["capabilities"]
+        capabilities = agent_info["capabilities"]
         assert capabilities["agent_type"] == "white_box"
         assert capabilities["gpu_count"] == 1
         assert "pytorch" in capabilities["frameworks"]
@@ -149,7 +150,7 @@ class TestAgentAPI:
         assert data["agent_id"] == test_agent.agent_id
         assert data["status"] == "idle"
         assert data["running_jobs"] == []
-        assert data["queued_jobs"] == 0
+        assert data["queued_jobs"] == []
 
     def test_api_response_models(self, client):
         """Test that API responses match expected Pydantic models."""
@@ -167,9 +168,13 @@ class TestAgentAPI:
         assert info_response.status_code == 200
         info_data = info_response.json()
         
+        # Info endpoint returns AgentInfoResponse with agent_info field
+        assert "agent_info" in info_data
+        agent_info = info_data["agent_info"]
+        
         required_info_fields = ["agent_id", "agent_type", "system_info", "capabilities", "last_updated"]
         for field in required_info_fields:
-            assert field in info_data
+            assert field in agent_info
 
     def test_concurrent_requests(self, client):
         """Test handling multiple sequential requests to endpoints."""

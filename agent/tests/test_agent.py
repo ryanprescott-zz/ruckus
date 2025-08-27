@@ -5,7 +5,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from ruckus_agent.core.agent import Agent
 from ruckus_agent.core.config import Settings
 from ruckus_agent.core.storage import InMemoryStorage
-from ruckus_common.models import AgentType
+from ruckus_common.models import AgentType, AgentStatusEnum
 
 
 @pytest.fixture
@@ -67,12 +67,12 @@ class TestAgent:
         """Test getting agent status."""
         status = await agent.get_status()
         
-        assert status["agent_id"] == agent.agent_id
-        assert status["status"] == "idle"
-        assert status["running_jobs"] == []
-        assert status["queued_jobs"] == 0
-        assert not status["registered"]
-        assert "timestamp" in status
+        assert status.agent_id == agent.agent_id
+        assert status.status == AgentStatusEnum.IDLE
+        assert status.running_jobs == []
+        assert status.queued_jobs == []
+        assert status.uptime_seconds >= 0
+        assert status.timestamp is not None
 
     @pytest.mark.asyncio
     @patch('ruckus_agent.core.agent.AgentDetector')

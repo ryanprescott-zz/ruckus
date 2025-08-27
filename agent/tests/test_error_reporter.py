@@ -30,12 +30,17 @@ class TestSystemMetricsCollector:
         assert isinstance(snapshot.gpu_power_draw_w, list)
     
     @pytest.mark.asyncio
-    @patch('subprocess.run')
-    async def test_gpu_metrics_with_nvidia_smi_success(self, mock_subprocess):
+    @patch('asyncio.create_subprocess_exec')
+    async def test_gpu_metrics_with_nvidia_smi_success(self, mock_subprocess_exec):
         """Test GPU metrics capture with successful nvidia-smi."""
-        # Mock nvidia-smi output
-        mock_subprocess.return_value.returncode = 0
-        mock_subprocess.return_value.stdout = "1024, 8192, 85.5, 65.0, 250.5\n2048, 8192, 90.0, 70.0, 275.0"
+        # Create mock process
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = (
+            b"1024, 8192, 85.5, 65.0, 250.5\n2048, 8192, 90.0, 70.0, 275.0",
+            b""
+        )
+        mock_subprocess_exec.return_value = mock_process
         
         snapshot = SystemMetricsSnapshot()
         await SystemMetricsCollector._capture_gpu_metrics(snapshot)

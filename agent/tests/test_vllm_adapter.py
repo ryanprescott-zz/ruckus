@@ -72,21 +72,27 @@ class TestVLLMAdapter:
         
         # Mock the discovery system
         with patch.object(vllm_adapter.discovery, 'discover_all_models', return_value=mock_discovered_models):
-            # Mock vLLM imports and engine creation
+            # Mock vLLM components
+            mock_engine = MagicMock()
+            mock_llm = MagicMock()
+            mock_sampling_params = MagicMock()
+            mock_engine_args = MagicMock()
+            mock_async_llm_engine = MagicMock()
+            mock_async_llm_engine.from_engine_args.return_value = mock_engine
+            
+            # Mock all the imports at once
             with patch.dict('sys.modules', {
-                'vllm': MagicMock(),
-                'vllm.engine.arg_utils': MagicMock(),
-                'vllm.engine.async_llm_engine': MagicMock()
+                'vllm': mock_llm,
+                'vllm.engine': MagicMock(),
+                'vllm.engine.arg_utils': MagicMock(AsyncEngineArgs=mock_engine_args),
+                'vllm.engine.async_llm_engine': MagicMock(AsyncLLMEngine=mock_async_llm_engine)
             }):
-                # Mock AsyncLLMEngine
-                mock_engine = MagicMock()
-                with patch('vllm.engine.async_llm_engine.AsyncLLMEngine.from_engine_args', return_value=mock_engine):
-                    await vllm_adapter.load_model(model_name)
-                    
-                    assert vllm_adapter.model_name == model_name
-                    assert vllm_adapter.model_path == mock_model_info.path
-                    assert vllm_adapter.model_info == mock_model_info
-                    assert vllm_adapter.engine == mock_engine
+                await vllm_adapter.load_model(model_name)
+                
+                assert vllm_adapter.model_name == model_name
+                assert vllm_adapter.model_path == mock_model_info.path
+                assert vllm_adapter.model_info == mock_model_info
+                assert vllm_adapter.engine == mock_engine
     
     @pytest.mark.asyncio
     async def test_load_model_not_found(self, vllm_adapter):
@@ -102,24 +108,30 @@ class TestVLLMAdapter:
     async def test_load_model_vllm_incompatible(self, vllm_adapter, mock_model_info):
         """Test loading a model that's not compatible with vLLM."""
         # Create incompatible model
-        incompatible_model = mock_model_info.copy()
+        incompatible_model = mock_model_info.model_copy()
         incompatible_model.framework_compatible = ["transformers", "pytorch"]  # No vLLM
         
         model_name = "test-llama-7b"
         
         with patch.object(vllm_adapter.discovery, 'discover_all_models', return_value=[incompatible_model]):
+            # Mock vLLM components
+            mock_engine = MagicMock()
+            mock_llm = MagicMock()
+            mock_engine_args = MagicMock()
+            mock_async_llm_engine = MagicMock()
+            mock_async_llm_engine.from_engine_args.return_value = mock_engine
+            
             with patch.dict('sys.modules', {
-                'vllm': MagicMock(),
-                'vllm.engine.arg_utils': MagicMock(),
-                'vllm.engine.async_llm_engine': MagicMock()
+                'vllm': mock_llm,
+                'vllm.engine': MagicMock(),
+                'vllm.engine.arg_utils': MagicMock(AsyncEngineArgs=mock_engine_args),
+                'vllm.engine.async_llm_engine': MagicMock(AsyncLLMEngine=mock_async_llm_engine)
             }):
-                mock_engine = MagicMock()
-                with patch('vllm.engine.async_llm_engine.AsyncLLMEngine.from_engine_args', return_value=mock_engine):
-                    # Should load but with warning (we test warning in logs)
-                    await vllm_adapter.load_model(model_name)
-                    
-                    assert vllm_adapter.model_name == model_name
-                    assert vllm_adapter.engine == mock_engine
+                # Should load but with warning (we test warning in logs)
+                await vllm_adapter.load_model(model_name)
+                
+                assert vllm_adapter.model_name == model_name
+                assert vllm_adapter.engine == mock_engine
     
     @pytest.mark.asyncio
     async def test_load_model_vllm_import_error(self, vllm_adapter, mock_discovered_models):
@@ -127,9 +139,8 @@ class TestVLLMAdapter:
         model_name = "test-llama-7b"
         
         with patch.object(vllm_adapter.discovery, 'discover_all_models', return_value=mock_discovered_models):
-            # Mock ImportError when importing vLLM
-            with patch('vllm.engine.async_llm_engine.AsyncLLMEngine.from_engine_args', 
-                      side_effect=ImportError("No module named 'vllm'")):
+            # Mock ImportError during the import statement inside load_model
+            with patch('builtins.__import__', side_effect=ImportError("No module named 'vllm'")):
                 with pytest.raises(ImportError, match="vLLM not available"):
                     await vllm_adapter.load_model(model_name)
                 
@@ -143,20 +154,24 @@ class TestVLLMAdapter:
         model_name = "test-llama-7b"
         
         with patch.object(vllm_adapter.discovery, 'discover_all_models', return_value=mock_discovered_models):
+            # Mock vLLM components with engine initialization failure
+            mock_llm = MagicMock()
+            mock_engine_args = MagicMock()
+            mock_async_llm_engine = MagicMock()
+            mock_async_llm_engine.from_engine_args.side_effect = RuntimeError("CUDA out of memory")
+            
             with patch.dict('sys.modules', {
-                'vllm': MagicMock(),
-                'vllm.engine.arg_utils': MagicMock(),
-                'vllm.engine.async_llm_engine': MagicMock()
+                'vllm': mock_llm,
+                'vllm.engine': MagicMock(),
+                'vllm.engine.arg_utils': MagicMock(AsyncEngineArgs=mock_engine_args),
+                'vllm.engine.async_llm_engine': MagicMock(AsyncLLMEngine=mock_async_llm_engine)
             }):
-                # Mock engine initialization failure
-                with patch('vllm.engine.async_llm_engine.AsyncLLMEngine.from_engine_args',
-                          side_effect=RuntimeError("CUDA out of memory")):
-                    with pytest.raises(RuntimeError, match="Failed to initialize vLLM engine"):
-                        await vllm_adapter.load_model(model_name)
-                    
-                    # Ensure cleanup on failure
-                    assert vllm_adapter.engine is None
-                    assert vllm_adapter.model_name is None
+                with pytest.raises(RuntimeError, match="Failed to initialize vLLM engine"):
+                    await vllm_adapter.load_model(model_name)
+                
+                # Ensure cleanup on failure
+                assert vllm_adapter.engine is None
+                assert vllm_adapter.model_name is None
     
     @pytest.mark.asyncio
     async def test_unload_model(self, vllm_adapter):
@@ -407,21 +422,25 @@ class TestVLLMAdapter:
         }
         
         with patch.object(vllm_adapter.discovery, 'discover_all_models', return_value=mock_discovered_models):
+            # Mock vLLM components  
+            mock_engine = MagicMock()
+            mock_llm = MagicMock()
+            mock_engine_args_instance = MagicMock()
+            mock_engine_args_class = MagicMock(return_value=mock_engine_args_instance)
+            mock_async_llm_engine = MagicMock()
+            mock_async_llm_engine.from_engine_args.return_value = mock_engine
+            
             with patch.dict('sys.modules', {
-                'vllm': MagicMock(),
-                'vllm.engine.arg_utils': MagicMock(),
-                'vllm.engine.async_llm_engine': MagicMock()
+                'vllm': mock_llm,
+                'vllm.engine': MagicMock(),
+                'vllm.engine.arg_utils': MagicMock(AsyncEngineArgs=mock_engine_args_class),
+                'vllm.engine.async_llm_engine': MagicMock(AsyncLLMEngine=mock_async_llm_engine)
             }):
-                mock_engine_args = MagicMock()
-                mock_engine = MagicMock()
+                await vllm_adapter.load_model(model_name, **kwargs)
                 
-                with patch('vllm.engine.arg_utils.AsyncEngineArgs', return_value=mock_engine_args) as mock_args_class:
-                    with patch('vllm.engine.async_llm_engine.AsyncLLMEngine.from_engine_args', return_value=mock_engine):
-                        await vllm_adapter.load_model(model_name, **kwargs)
-                        
-                        # Verify kwargs were passed to AsyncEngineArgs
-                        mock_args_class.assert_called_once()
-                        call_args = mock_args_class.call_args
-                        assert call_args[1]["tensor_parallel_size"] == 2
-                        assert call_args[1]["gpu_memory_utilization"] == 0.9
-                        assert call_args[1]["max_num_batched_tokens"] == 4096
+                # Verify kwargs were passed to AsyncEngineArgs
+                mock_engine_args_class.assert_called_once()
+                call_args = mock_engine_args_class.call_args
+                assert call_args[1]["tensor_parallel_size"] == 2
+                assert call_args[1]["gpu_memory_utilization"] == 0.9
+                assert call_args[1]["max_num_batched_tokens"] == 4096

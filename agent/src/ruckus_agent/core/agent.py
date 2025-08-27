@@ -344,13 +344,13 @@ class Agent:
         """Get agent status."""
         # Determine status based on current state
         if self.crashed:
-            status = "crashed"
+            status = AgentStatusEnum.ERROR  # Use ERROR for crashed state
         elif self.running_jobs:
-            status = "active"
+            status = AgentStatusEnum.ACTIVE
         elif self.queued_job_ids:
-            status = "idle"  # Has queued jobs but not running any
+            status = AgentStatusEnum.IDLE  # Has queued jobs but not running any
         else:
-            status = "idle"
+            status = AgentStatusEnum.IDLE
         
         # Calculate uptime
         uptime_seconds = (datetime.utcnow() - self.startup_time).total_seconds()
@@ -359,7 +359,7 @@ class Agent:
             agent_id=self.agent_id,
             status=status,
             running_jobs=list(self.running_jobs.keys()),
-            queued_jobs=len(self.queued_job_ids),  # Return count instead of list
+            queued_jobs=self.queued_job_ids.copy(),  # Return copy of the list
             uptime_seconds=uptime_seconds,
             timestamp=datetime.utcnow()
         )
