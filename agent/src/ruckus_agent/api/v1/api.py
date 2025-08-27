@@ -1,12 +1,13 @@
 """Main API router for agent v1."""
 
 from fastapi import APIRouter, Request
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from ruckus_common.models import (
     JobRequest, JobUpdate, JobResult, AgentType,
     AgentRegistrationResponse, AgentInfoResponse, AgentInfo, AgentStatus
 )
+from ruckus_agent.core.models import JobErrorReport
 
 router = APIRouter()
 
@@ -23,6 +24,9 @@ async def api_info():
             "/capabilities",
             "/execute",
             "/status",
+            "/errors",
+            "/errors/{job_id}",
+            "/errors/clear",
         ]
     }
 
@@ -90,3 +94,29 @@ async def cancel_job(job_id: str, request: Request):
     agent = request.app.state.agent
     # TODO: Implement job cancellation
     return {"cancelled": False, "reason": "Not implemented"}
+
+
+@router.get("/errors", response_model=List[JobErrorReport])
+async def get_error_reports(request: Request):
+    """Get all error reports from failed jobs."""
+    agent = request.app.state.agent
+    return await agent.get_error_reports()
+
+
+@router.get("/errors/{job_id}", response_model=Optional[JobErrorReport])
+async def get_error_report(job_id: str, request: Request):
+    """Get error report for a specific job."""
+    agent = request.app.state.agent
+    return await agent.get_error_report(job_id)
+
+
+@router.delete("/errors/clear")
+async def clear_error_reports(request: Request):
+    """Clear all error reports and reset crashed state."""
+    agent = request.app.state.agent
+    count = await agent.clear_error_reports()
+    return {
+        "message": f"Cleared {count} error reports",
+        "cleared_count": count,
+        "agent_reset": True
+    }

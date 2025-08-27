@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  ruckus-agent:
+    build:
+      context: ../../
+      dockerfile: docker/agent/Dockerfile
+    container_name: ruckus-agent
+    hostname: ruckus-agent
+    restart: unless-stopped
+    
+    # GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Environment variables
+    env_file: .env
+    environment:
+      # Agent configuration
+      - RUCKUS_AGENT_HOST=0.0.0.0
+      - RUCKUS_AGENT_PORT=8081
+      - RUCKUS_AGENT_DEBUG=${DEBUG:-false}
+      
+      # Model configuration
+      - RUCKUS_AGENT_MODEL_CACHE_DIR=/ruckus/models
+      - RUCKUS_AGENT_ENABLE_VLLM=true
+      - RUCKUS_AGENT_ENABLE_TRANSFORMERS=true
+      - RUCKUS_AGENT_ENABLE_PYTORCH=true
+      
+      # Server connection
+      - RUCKUS_AGENT_ORCHESTRATOR_URL=${ORCHESTRATOR_URL:-}
+      - RUCKUS_AGENT_HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-30}
+      
+      # Performance settings
+      - RUCKUS_AGENT_MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-1}
+      - RUCKUS_AGENT_JOB_TIMEOUT_DEFAULT=${JOB_TIMEOUT:-3600}
+      
+      # Monitoring
+      - RUCKUS_AGENT_ENABLE_GPU_MONITORING=true
+      - RUCKUS_AGENT_ENABLE_MEMORY_MONITORING=true
+      - RUCKUS_AGENT_METRICS_COLLECTION_INTERVAL=${METRICS_INTERVAL:-1}
+      
+      # Logging
+      - RUCKUS_AGENT_LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RUCKUS_AGENT_LOG_FORMAT=${LOG_FORMAT:-json}
+      
+      # CUDA settings
+      - CUDA_VISIBLE_DEVICES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+    
+    # Volume mounts
+    volumes:
+      # Mount models directory (host path should be configured per deployment)
+      - ${MODELS_HOST_PATH:-./models}:/ruckus/models:ro
+      
+      # Optional: mount logs directory
+      - ${LOGS_HOST_PATH:-./logs}:/ruckus/logs
+      
+      # Optional: mount config files
+      - ${CONFIG_HOST_PATH:-./config}:/ruckus/config:ro
+    
+    # Network ports
+    ports:
+      - "${AGENT_PORT:-8081}:8081"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Resource limits (optional, adjust based on hardware)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 16G
+    #     reservations:
+    #       memory: 8G
+
+networks:
+  default:
+    name: ruckus-network

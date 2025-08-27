@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     job_timeout_default: int = Field(default=3600, description="Default timeout in seconds for job execution")
 
     # Model Management
-    model_cache_dir: str = Field(default="/models", description="Directory path for caching downloaded models")
+    model_cache_dir: str = Field(default="/ruckus/models", description="Directory path for cached models (typically volume mounted)")
     max_cached_models: int = Field(default=5, description="Maximum number of models to keep in cache")
 
     # Monitoring

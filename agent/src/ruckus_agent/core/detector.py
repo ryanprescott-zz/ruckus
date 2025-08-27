@@ -12,6 +12,8 @@ from .models import (
     FrameworkInfo, ModelInfo, HookInfo,
     MetricCapability
 )
+from ..utils.model_discovery import ModelDiscovery
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -164,14 +166,22 @@ class AgentDetector:
 
     async def detect_models(self, search_paths: List[str] = None) -> List[Dict]:
         """Detect available models."""
-        if search_paths is None:
-            search_paths = ["/models", "./models", "~/.cache/huggingface"]
+        logger.debug("Starting model detection")
         
-        logger.debug(f"Detecting models in paths: {search_paths}")
-        models = []
-        # TODO: Implement model detection
-        logger.debug(f"Model detection completed: {len(models)} models found")
-        return models
+        try:
+            # Use configured model cache directory
+            discovery = ModelDiscovery(settings.model_cache_dir)
+            models_info = await discovery.discover_all_models()
+            
+            # Convert ModelInfo objects to dictionaries for storage/transmission
+            models = [model.dict() for model in models_info]
+            
+            logger.info(f"Model detection completed: {len(models)} models found")
+            return models
+            
+        except Exception as e:
+            logger.error(f"Model detection failed: {e}")
+            return []
 
     async def detect_hooks(self) -> List[Dict]:
         """Detect available system hooks."""

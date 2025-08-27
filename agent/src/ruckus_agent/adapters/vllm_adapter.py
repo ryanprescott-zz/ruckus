@@ -1,8 +1,12 @@
 """vLLM adapter for high-performance inference."""
 
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
+from pathlib import Path
 from .base import ModelAdapter
+from ..utils.model_discovery import ModelDiscovery
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,67 +17,236 @@ class VLLMAdapter(ModelAdapter):
     def __init__(self):
         self.engine = None
         self.model_name = None
+        self.model_path = None
+        self.model_info = None
+        self.discovery = ModelDiscovery(settings.model_cache_dir)
         logger.info("VLLMAdapter initialized")
 
     async def load_model(self, model_name: str, **kwargs) -> None:
-        """Load a model with vLLM."""
+        """Load a model with vLLM using discovered model information."""
         logger.info(f"VLLMAdapter loading model: {model_name}")
+        
         try:
-            # TODO: Implement vLLM model loading
+            # Find model in discovered models
+            discovered_models = await self.discovery.discover_all_models()
+            matching_model = None
+            
+            for model in discovered_models:
+                if model.name == model_name or model.path.endswith(model_name):
+                    matching_model = model
+                    break
+            
+            if not matching_model:
+                raise ValueError(f"Model {model_name} not found in discovered models")
+            
+            # Validate model is compatible with vLLM
+            if "vllm" not in matching_model.framework_compatible:
+                logger.warning(f"Model {model_name} may not be compatible with vLLM (compatible: {matching_model.framework_compatible})")
+            
+            # Store model information
             self.model_name = model_name
-            logger.info(f"VLLMAdapter model loaded successfully: {model_name}")
+            self.model_path = matching_model.path
+            self.model_info = matching_model
+            
+            # Load model with vLLM
+            logger.info(f"Loading model from path: {self.model_path}")
+            logger.debug(f"Model info: {matching_model.model_type}, {matching_model.size_gb:.2f}GB, {matching_model.format}")
+            
+            try:
+                # Import vLLM here to handle import errors gracefully
+                from vllm import LLM, SamplingParams
+                from vllm.engine.arg_utils import AsyncEngineArgs
+                from vllm.engine.async_llm_engine import AsyncLLMEngine
+                
+                # Configure vLLM engine arguments
+                engine_args = AsyncEngineArgs(
+                    model=self.model_path,
+                    **kwargs
+                )
+                
+                # Create async engine
+                self.engine = AsyncLLMEngine.from_engine_args(engine_args)
+                
+                logger.info(f"VLLMAdapter model loaded successfully: {model_name}")
+                logger.debug(f"Model loaded with vLLM engine at {self.model_path}")
+                
+            except ImportError as e:
+                raise ImportError(f"vLLM not available or failed to import: {e}")
+            except Exception as e:
+                # Re-raise with more context
+                raise RuntimeError(f"Failed to initialize vLLM engine for {model_name}: {e}")
+                
         except Exception as e:
             logger.error(f"VLLMAdapter failed to load model {model_name}: {e}")
+            # Clean up on failure
+            self.engine = None
+            self.model_name = None
+            self.model_path = None
+            self.model_info = None
             raise
 
     async def unload_model(self) -> None:
         """Unload the current model."""
         logger.info(f"VLLMAdapter unloading model: {self.model_name}")
+        
+        # Clean up vLLM engine
+        if self.engine:
+            try:
+                # Note: AsyncLLMEngine doesn't have explicit cleanup in older versions
+                # In newer versions, you might need to call engine.shutdown()
+                pass
+            except Exception as e:
+                logger.warning(f"Error during engine cleanup: {e}")
+        
+        # Clear references
         self.engine = None
         self.model_name = None
+        self.model_path = None
+        self.model_info = None
         logger.info("VLLMAdapter model unloaded")
 
     async def generate(self, prompt: str, parameters: Dict[str, Any]) -> str:
         """Generate with vLLM."""
+        if not self.engine:
+            raise RuntimeError("No model loaded. Call load_model() first.")
+            
         logger.debug(f"VLLMAdapter generating for prompt length: {len(prompt)}")
+        
         try:
-            # TODO: Implement vLLM generation
-            result = f"vLLM output for: {prompt[:50]}..."
-            logger.debug(f"VLLMAdapter generated output length: {len(result)}")
-            return result
+            from vllm import SamplingParams
+            
+            # Create sampling parameters from input parameters
+            sampling_params = SamplingParams(
+                temperature=parameters.get('temperature', 0.7),
+                max_tokens=parameters.get('max_tokens', 100),
+                top_p=parameters.get('top_p', 1.0),
+                top_k=parameters.get('top_k', -1),
+            )
+            
+            # Generate using vLLM async engine
+            request_id = f"req_{asyncio.get_event_loop().time()}"
+            
+            # Add request to engine
+            results_generator = self.engine.generate(
+                prompt, 
+                sampling_params, 
+                request_id
+            )
+            
+            # Collect results
+            final_output = ""
+            async for request_output in results_generator:
+                if request_output.finished:
+                    # Get the generated text
+                    if request_output.outputs:
+                        final_output = request_output.outputs[0].text
+                    break
+            
+            logger.debug(f"VLLMAdapter generated output length: {len(final_output)}")
+            return final_output
+            
         except Exception as e:
             logger.error(f"VLLMAdapter generation failed: {e}")
             raise
 
     async def generate_batch(self, prompts: List[str], parameters: Dict[str, Any]) -> List[str]:
         """Batch generation with vLLM."""
+        if not self.engine:
+            raise RuntimeError("No model loaded. Call load_model() first.")
+            
         logger.info(f"VLLMAdapter batch generation for {len(prompts)} prompts")
+        
         try:
-            # TODO: Implement vLLM batch generation
-            results = [await self.generate(p, parameters) for p in prompts]
+            from vllm import SamplingParams
+            
+            # Create sampling parameters
+            sampling_params = SamplingParams(
+                temperature=parameters.get('temperature', 0.7),
+                max_tokens=parameters.get('max_tokens', 100),
+                top_p=parameters.get('top_p', 1.0),
+                top_k=parameters.get('top_k', -1),
+            )
+            
+            # Generate batch requests
+            request_ids = [f"req_{i}_{asyncio.get_event_loop().time()}" for i in range(len(prompts))]
+            
+            # Submit all requests
+            generators = []
+            for prompt, request_id in zip(prompts, request_ids):
+                generator = self.engine.generate(prompt, sampling_params, request_id)
+                generators.append(generator)
+            
+            # Collect results
+            results = []
+            for generator in generators:
+                final_output = ""
+                async for request_output in generator:
+                    if request_output.finished:
+                        if request_output.outputs:
+                            final_output = request_output.outputs[0].text
+                        break
+                results.append(final_output)
+            
             logger.info(f"VLLMAdapter batch generation completed: {len(results)} results")
             return results
+            
         except Exception as e:
             logger.error(f"VLLMAdapter batch generation failed: {e}")
             raise
 
     async def tokenize(self, text: str) -> List[int]:
-        """Tokenize text."""
-        # TODO: Implement tokenization
-        return []
+        """Tokenize text using the model's tokenizer."""
+        if not self.engine:
+            raise RuntimeError("No model loaded. Call load_model() first.")
+            
+        try:
+            # Access tokenizer through engine
+            tokenizer = self.engine.engine.tokenizer
+            token_ids = tokenizer.encode(text)
+            return token_ids
+        except Exception as e:
+            logger.error(f"Tokenization failed: {e}")
+            # Fallback to simple word splitting
+            return list(range(len(text.split())))
 
     async def count_tokens(self, text: str) -> int:
-        """Count tokens."""
-        # TODO: Implement token counting
-        return len(text.split())
+        """Count tokens in text."""
+        try:
+            tokens = await self.tokenize(text)
+            return len(tokens)
+        except Exception:
+            # Fallback to word count
+            return len(text.split())
 
     def get_model_info(self) -> Dict[str, Any]:
-        """Get model information."""
-        return {
+        """Get comprehensive model information."""
+        base_info = {
             "model_name": self.model_name,
+            "model_path": self.model_path,
             "engine": "vllm",
             "loaded": self.engine is not None,
         }
+        
+        # Add discovered model metadata if available
+        if self.model_info:
+            base_info.update({
+                "model_type": self.model_info.model_type,
+                "architecture": self.model_info.architecture,
+                "size_gb": self.model_info.size_gb,
+                "format": self.model_info.format,
+                "vocab_size": self.model_info.vocab_size,
+                "hidden_size": self.model_info.hidden_size,
+                "num_layers": self.model_info.num_layers,
+                "num_attention_heads": self.model_info.num_attention_heads,
+                "max_position_embeddings": self.model_info.max_position_embeddings,
+                "torch_dtype": self.model_info.torch_dtype,
+                "quantization": self.model_info.quantization,
+                "tokenizer_type": self.model_info.tokenizer_type,
+                "framework_compatible": self.model_info.framework_compatible,
+                "discovered_at": self.model_info.discovered_at.isoformat() if self.model_info.discovered_at else None,
+            })
+        
+        return base_info
 
     def get_capabilities(self) -> Dict[str, bool]:
         """Get vLLM capabilities."""
@@ -84,11 +257,36 @@ class VLLMAdapter(ModelAdapter):
             "tokenization": True,
             "quantization": True,
             "tensor_parallel": True,
+            "paged_attention": True,
+            "dynamic_batching": True,
         }
 
     async def get_metrics(self) -> Dict[str, Any]:
-        """Get vLLM metrics."""
-        return {
+        """Get vLLM runtime metrics."""
+        metrics = {
             "engine_loaded": self.engine is not None,
             "model_name": self.model_name,
+            "model_path": self.model_path,
         }
+        
+        if self.model_info:
+            metrics.update({
+                "model_size_gb": self.model_info.size_gb,
+                "model_type": self.model_info.model_type,
+                "quantization": self.model_info.quantization,
+            })
+        
+        # Add engine-specific metrics if available
+        if self.engine:
+            try:
+                # Try to get engine stats if available
+                # Note: This depends on vLLM version and may not always be available
+                engine_stats = getattr(self.engine, 'get_stats', lambda: {})()
+                if engine_stats:
+                    metrics.update({
+                        "engine_stats": engine_stats
+                    })
+            except Exception as e:
+                logger.debug(f"Could not retrieve engine stats: {e}")
+        
+        return metrics

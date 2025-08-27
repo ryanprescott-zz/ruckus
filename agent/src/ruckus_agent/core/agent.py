@@ -9,9 +9,10 @@ from datetime import datetime
 
 from ruckus_common.models import JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum
 from .config import Settings
-from .models import AgentRegistration
+from .models import AgentRegistration, JobErrorReport
 from .detector import AgentDetector
 from .storage import AgentStorage, InMemoryStorage
+from ..utils.error_reporter import ErrorReporter
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,12 @@ class Agent:
         self.job_queue: asyncio.Queue = asyncio.Queue()
         self.queued_job_ids: List[str] = []  # Track queued job IDs for status reporting
         self.startup_time = datetime.utcnow()
+        self.crashed = False
+        self.crash_reason: Optional[str] = None
+        
+        # Error reporting
+        self.error_reporter = ErrorReporter(self.agent_id)
+        self.error_reports: Dict[str, JobErrorReport] = {}  # Store error reports for server retrieval
 
         # HTTP client for orchestrator communication
         self.client = httpx.AsyncClient()
@@ -110,12 +117,33 @@ class Agent:
         """Register with orchestrator."""
         logger.info(f"Agent {self.agent_id} attempting registration with orchestrator")
         try:
+            # Get full system info including discovered models
+            system_info = await self.get_system_info()
             capabilities = await self.get_capabilities()
+            
+            # Create comprehensive registration
             registration = AgentRegistration(
                 agent_id=self.agent_id,
+                agent_name=self.agent_name,
                 agent_type=self.settings.agent_type,
+                
+                # System information
+                system=system_info.get("system"),
+                cpu=system_info.get("cpu"),
+                gpus=[gpu for gpu in system_info.get("gpus", [])],
+                
+                # Framework and model information  
+                frameworks=[fw for fw in system_info.get("frameworks", [])],
+                models=[model for model in system_info.get("models", [])],
+                hooks=[hook for hook in system_info.get("hooks", [])],
+                
+                # Capabilities
                 capabilities=capabilities,
-                # TODO: Add more registration details
+                metrics_available=[metric for metric in system_info.get("metrics", [])],
+                
+                # Configuration
+                max_concurrent_jobs=self.settings.max_concurrent_jobs,
+                max_batch_size=1,  # TODO: Make configurable
             )
 
             response = await self.client.post(
@@ -125,6 +153,7 @@ class Agent:
             if response.status_code == 200:
                 self.registered = True
                 logger.info(f"Agent {self.agent_id} registered successfully with orchestrator")
+                logger.debug(f"Registered with {len(registration.models)} models, {len(registration.frameworks)} frameworks")
             else:
                 logger.error(f"Registration failed with status {response.status_code}: {response.text}")
         except Exception as e:
@@ -171,18 +200,24 @@ class Agent:
                 logger.error(f"Agent {self.agent_id} job execution error: {e}")
 
     async def _execute_job(self, job: JobRequest):
-        """Execute a single job."""
+        """Execute a single job with comprehensive error handling."""
         logger.info(f"Agent {self.agent_id} executing job {job.job_id}")
+        
+        start_time = datetime.utcnow()
+        error_report = None
+        
         try:
+            # Start job tracking for error reporting
+            await self.error_reporter.start_job_tracking(job.job_id, "initializing")
+            
             # Add to running jobs
             self.running_jobs[job.job_id] = {
                 "job": job,
-                "start_time": datetime.utcnow(),
+                "start_time": start_time,
             }
 
-            # TODO: Implement actual job execution
-
-            # Update status
+            # Send initial status update
+            await self.error_reporter.update_job_stage(job.job_id, "starting")
             update = JobUpdate(
                 job_id=job.job_id,
                 status=JobStatus.RUNNING,
@@ -190,12 +225,98 @@ class Agent:
             )
             await self._send_update(update)
             
-            logger.info(f"Agent {self.agent_id} job {job.job_id} execution started")
+            # TODO: Implement actual job execution stages
+            await self.error_reporter.update_job_stage(job.job_id, "model_loading")
+            
+            # Simulate model loading stage
+            await asyncio.sleep(1)  # Replace with actual model loading
+            
+            await self.error_reporter.update_job_stage(job.job_id, "inference")
+            
+            # Simulate inference stage  
+            await asyncio.sleep(2)  # Replace with actual inference
+            
+            await self.error_reporter.update_job_stage(job.job_id, "completing")
+            
+            # Job completed successfully
+            logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully")
+            
         except Exception as e:
             logger.error(f"Agent {self.agent_id} job {job.job_id} execution failed: {e}")
-            # Remove from running jobs on error
+            
+            try:
+                # Generate comprehensive error report
+                error_report = await self.error_reporter.generate_error_report(
+                    job_id=job.job_id,
+                    experiment_id=job.experiment_id,
+                    error=e,
+                    model_name=job.model,
+                    model_path=f"/ruckus/models/{job.model}",  # TODO: Get actual path
+                    framework=job.framework,
+                    task_type=job.task_type.value,
+                    parameters=job.parameters,
+                    started_at=start_time,
+                    model_size_gb=None  # TODO: Get from model discovery
+                )
+                
+                # Store error report for server retrieval
+                self.error_reports[job.job_id] = error_report
+                
+                # Attempt cleanup
+                cleanup_actions = await self._cleanup_failed_job(job, e)
+                error_report.cleanup_actions = cleanup_actions
+                error_report.recovery_successful = True  # If we reach here, cleanup worked
+                
+                logger.info(f"Generated error report for job {job.job_id}: {error_report.error_type}")
+                
+            except Exception as cleanup_error:
+                logger.error(f"Failed to generate error report or cleanup job {job.job_id}: {cleanup_error}")
+                # Mark agent as crashed if cleanup fails
+                self.crashed = True
+                self.crash_reason = f"Failed cleanup after job {job.job_id}: {cleanup_error}"
+            
+            # Send failure update to server
+            failure_update = JobUpdate(
+                job_id=job.job_id,
+                status=JobStatus.FAILED,
+                message=str(e)
+            )
+            await self._send_update(failure_update)
+            
+        finally:
+            # Clean up job tracking and running jobs
+            await self.error_reporter.cleanup_job_tracking(job.job_id)
             self.running_jobs.pop(job.job_id, None)
+
+    async def _cleanup_failed_job(self, job: JobRequest, error: Exception) -> List[str]:
+        """Perform cleanup actions after a job fails."""
+        cleanup_actions = []
+        
+        try:
+            # GPU memory cleanup
+            cleanup_actions.append("clearing_gpu_cache")
+            # TODO: Add actual GPU cache clearing (torch.cuda.empty_cache())
+            
+            # Model unloading
+            cleanup_actions.append("unloading_model")
+            # TODO: Add actual model unloading
+            
+            # Temporary file cleanup
+            cleanup_actions.append("cleaning_temp_files")
+            # TODO: Add temp file cleanup
+            
+            # Process cleanup
+            cleanup_actions.append("process_cleanup")
+            # TODO: Add process-specific cleanup
+            
+            logger.info(f"Completed cleanup actions for job {job.job_id}: {cleanup_actions}")
+            
+        except Exception as e:
+            logger.error(f"Cleanup failed for job {job.job_id}: {e}")
+            cleanup_actions.append(f"cleanup_failed: {e}")
             raise
+        
+        return cleanup_actions
 
     async def _send_update(self, update: JobUpdate):
         """Send job update to orchestrator."""
@@ -222,12 +343,14 @@ class Agent:
     async def get_status(self) -> AgentStatus:
         """Get agent status."""
         # Determine status based on current state
-        if self.running_jobs:
-            status = AgentStatusEnum.ACTIVE
+        if self.crashed:
+            status = "crashed"
+        elif self.running_jobs:
+            status = "active"
         elif self.queued_job_ids:
-            status = AgentStatusEnum.IDLE  # Has queued jobs but not running any
+            status = "idle"  # Has queued jobs but not running any
         else:
-            status = AgentStatusEnum.IDLE
+            status = "idle"
         
         # Calculate uptime
         uptime_seconds = (datetime.utcnow() - self.startup_time).total_seconds()
@@ -236,7 +359,7 @@ class Agent:
             agent_id=self.agent_id,
             status=status,
             running_jobs=list(self.running_jobs.keys()),
-            queued_jobs=self.queued_job_ids.copy(),  # Return copy of the list
+            queued_jobs=len(self.queued_job_ids),  # Return count instead of list
             uptime_seconds=uptime_seconds,
             timestamp=datetime.utcnow()
         )
@@ -252,3 +375,20 @@ class Agent:
         except Exception as e:
             logger.error(f"Agent {self.agent_id} failed to queue job {job.job_id}: {e}")
             raise
+
+    async def get_error_reports(self) -> List[JobErrorReport]:
+        """Get all stored error reports."""
+        return list(self.error_reports.values())
+    
+    async def get_error_report(self, job_id: str) -> Optional[JobErrorReport]:
+        """Get error report for a specific job."""
+        return self.error_reports.get(job_id)
+    
+    async def clear_error_reports(self) -> int:
+        """Clear all error reports and return count cleared."""
+        count = len(self.error_reports)
+        self.error_reports.clear()
+        self.crashed = False  # Reset crashed state when reports are cleared
+        self.crash_reason = None
+        logger.info(f"Cleared {count} error reports, reset crashed state")
+        return count

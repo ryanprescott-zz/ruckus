@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ModelCache:
     """Manage cached models."""
 
-    def __init__(self, cache_dir: str = "/models"):
+    def __init__(self, cache_dir: str = "/ruckus/models"):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_file = self.cache_dir / "manifest.json"
