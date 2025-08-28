@@ -295,6 +295,15 @@ class Agent:
             # Clean up job tracking and running jobs
             await self.error_reporter.cleanup_job_tracking(job.job_id)
             self.running_jobs.pop(job.job_id, None)
+            
+            # Perform comprehensive cleanup and verify idle state
+            await self._perform_comprehensive_cleanup()
+            
+            # Verify that agent is truly in clean idle state
+            if not self.running_jobs:  # No more jobs running
+                cleanup_verified = await self._verify_clean_idle_state()
+                if not cleanup_verified:
+                    logger.warning("Agent cleanup verification failed - some resources may not be properly cleaned")
 
     async def _execute_multi_run_job(self, job: JobRequest, job_start_time: datetime):
         """Execute a multi-run job with cold start separation and statistical analysis."""
@@ -541,6 +550,180 @@ class Agent:
         except Exception as e:
             logger.error(f"GPU benchmarking failed: {e}")
             return None
+
+    async def _perform_comprehensive_cleanup(self):
+        """Perform comprehensive cleanup of all agent resources."""
+        logger.debug("Starting comprehensive agent cleanup")
+        
+        try:
+            # Clear any cached benchmark results
+            if hasattr(self, '_current_job_benchmarks'):
+                self._current_job_benchmarks.clear()
+            
+            # GPU memory cleanup
+            await self._cleanup_gpu_memory()
+            
+            # Clear temporary files and caches
+            await self._cleanup_temporary_resources()
+            
+            # Reset model states if any are loaded
+            await self._cleanup_model_states()
+            
+            logger.debug("Comprehensive cleanup completed")
+            
+        except Exception as e:
+            logger.error(f"Error during comprehensive cleanup: {e}")
+
+    async def _cleanup_gpu_memory(self):
+        """Clean up GPU memory and cached allocations."""
+        try:
+            # Clear PyTorch GPU cache if available
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.debug("Cleared CUDA memory cache")
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+                logger.debug("Cleared MPS memory cache")
+                
+        except ImportError:
+            logger.debug("PyTorch not available for GPU cleanup")
+        except Exception as e:
+            logger.debug(f"GPU memory cleanup failed: {e}")
+
+    async def _cleanup_temporary_resources(self):
+        """Clean up temporary files and in-memory caches."""
+        try:
+            # Clear error reports that are old
+            current_time = datetime.utcnow()
+            old_reports = []
+            
+            for job_id, report in self.error_reports.items():
+                if hasattr(report, 'created_at'):
+                    age = (current_time - report.created_at).total_seconds()
+                    if age > 3600:  # Older than 1 hour
+                        old_reports.append(job_id)
+            
+            for job_id in old_reports:
+                self.error_reports.pop(job_id, None)
+            
+            if old_reports:
+                logger.debug(f"Cleaned up {len(old_reports)} old error reports")
+                
+        except Exception as e:
+            logger.debug(f"Temporary resource cleanup failed: {e}")
+
+    async def _cleanup_model_states(self):
+        """Clean up any loaded model states and frameworks."""
+        try:
+            # TODO: Implement actual model cleanup when model loading is implemented
+            # This would include unloading models from VRAM, clearing framework states, etc.
+            
+            # For now, just log that this step would happen
+            logger.debug("Model state cleanup completed (placeholder)")
+            
+        except Exception as e:
+            logger.debug(f"Model state cleanup failed: {e}")
+
+    async def _verify_clean_idle_state(self) -> bool:
+        """Verify that the agent is in a truly clean idle state."""
+        logger.debug("Verifying clean idle state")
+        
+        verification_passed = True
+        issues = []
+        
+        try:
+            # Check 1: No running jobs
+            if self.running_jobs:
+                issues.append(f"Still has {len(self.running_jobs)} running jobs")
+                verification_passed = False
+            
+            # Check 2: No queued jobs
+            if self.queued_job_ids:
+                issues.append(f"Still has {len(self.queued_job_ids)} queued jobs")
+                verification_passed = False
+            
+            # Check 3: GPU memory usage (if available)
+            gpu_memory_ok = await self._verify_gpu_memory_cleaned()
+            if not gpu_memory_ok:
+                issues.append("GPU memory not properly cleaned")
+                verification_passed = False
+            
+            # Check 4: System resource usage
+            system_resources_ok = await self._verify_system_resources()
+            if not system_resources_ok:
+                issues.append("System resources elevated")
+                # Note: Don't fail verification for this, just warn
+            
+            # Check 5: Error tracking cleanup
+            if hasattr(self.error_reporter, '_active_jobs') and self.error_reporter._active_jobs:
+                issues.append("Error reporter still tracking active jobs")
+                verification_passed = False
+            
+            if issues:
+                logger.warning(f"Idle state verification issues: {', '.join(issues)}")
+            else:
+                logger.debug("Idle state verification passed - agent is clean")
+                
+            return verification_passed
+            
+        except Exception as e:
+            logger.error(f"Error during idle state verification: {e}")
+            return False
+
+    async def _verify_gpu_memory_cleaned(self) -> bool:
+        """Verify GPU memory has been properly cleaned."""
+        try:
+            import torch
+            
+            if torch.cuda.is_available():
+                # Check CUDA memory usage
+                for device_idx in range(torch.cuda.device_count()):
+                    allocated = torch.cuda.memory_allocated(device_idx)
+                    cached = torch.cuda.memory_reserved(device_idx)
+                    
+                    # Allow some small baseline usage but flag large allocations
+                    if allocated > 100 * 1024 * 1024:  # > 100MB allocated
+                        logger.debug(f"CUDA device {device_idx} has {allocated // 1024 // 1024}MB allocated")
+                        return False
+                        
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                # MPS doesn't provide detailed memory inspection, assume clean after empty_cache
+                pass
+            
+            return True
+            
+        except ImportError:
+            return True  # Can't verify without torch, assume clean
+        except Exception as e:
+            logger.debug(f"GPU memory verification failed: {e}")
+            return True  # Don't fail verification for inspection errors
+
+    async def _verify_system_resources(self) -> bool:
+        """Verify system resources are at reasonable levels."""
+        try:
+            import psutil
+            
+            # Check memory usage
+            memory = psutil.virtual_memory()
+            if memory.percent > 90:
+                logger.warning(f"High system memory usage: {memory.percent}%")
+                return False
+            
+            # Check CPU usage (averaged over a short period)
+            cpu_percent = psutil.cpu_percent(interval=1)
+            if cpu_percent > 80:
+                logger.warning(f"High CPU usage: {cpu_percent}%")
+                return False
+                
+            return True
+            
+        except ImportError:
+            return True  # Can't verify without psutil
+        except Exception as e:
+            logger.debug(f"System resource verification failed: {e}")
+            return True
 
     async def _cleanup_failed_job(self, job: JobRequest, error: Exception) -> List[str]:
         """Perform cleanup actions after a job fails."""
