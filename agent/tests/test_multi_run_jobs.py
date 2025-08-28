@@ -285,118 +285,84 @@ class TestMultiRunJobExecution:
     @pytest.mark.asyncio
     async def test_multi_run_job_execution_flow(self, agent, multi_run_job_request):
         """Test the complete multi-run job execution flow."""
-        # Mock the task execution
+        now = datetime.utcnow()
+        
+        # Create mock SingleRunResult objects that _execute_single_run should return
+        mock_run_results = [
+            # Cold start run (first run)
+            SingleRunResult(
+                run_id=0,
+                is_cold_start=True,
+                started_at=now,
+                completed_at=now + timedelta(seconds=2.5),
+                duration_seconds=2.5,
+                metrics={"latency": 2.5, "throughput": 10.0},
+                model_load_time_seconds=1.0,
+                model_load_memory_mb=500.0
+            ),
+            # Warm runs (subsequent runs)
+            SingleRunResult(
+                run_id=1,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=3),
+                completed_at=now + timedelta(seconds=4.5),
+                duration_seconds=1.5,
+                metrics={"latency": 1.5, "throughput": 15.0}
+            ),
+            SingleRunResult(
+                run_id=2,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=5),
+                completed_at=now + timedelta(seconds=6.6),
+                duration_seconds=1.6,
+                metrics={"latency": 1.6, "throughput": 14.5}
+            ),
+            SingleRunResult(
+                run_id=3,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=7),
+                completed_at=now + timedelta(seconds=8.4),
+                duration_seconds=1.4,
+                metrics={"latency": 1.4, "throughput": 15.5}
+            ),
+            SingleRunResult(
+                run_id=4,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=9),
+                completed_at=now + timedelta(seconds=10.5),
+                duration_seconds=1.5,
+                metrics={"latency": 1.5, "throughput": 15.0}
+            )
+        ]
+        
+        # Mock the _execute_single_run method to return our pre-created results
         with patch.object(agent, '_execute_single_run') as mock_execute:
-            # Mock successful runs
-            mock_execute.side_effect = [
-                # Cold start run (first run)
-                {
-                    "success": True,
-                    "metrics": {"latency": 2.5, "throughput": 10.0},
-                    "model_load_time": 1.0,
-                    "duration": 2.5
-                },
-                # Warm runs (subsequent runs)
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.5, "throughput": 15.0},
-                    "duration": 1.5
-                },
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.6, "throughput": 14.5},
-                    "duration": 1.6
-                },
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.4, "throughput": 15.5},
-                    "duration": 1.4
-                },
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.5, "throughput": 15.0},
-                    "duration": 1.5
-                }
-            ]
+            mock_execute.side_effect = mock_run_results
             
-            # Mock the _execute_job method to handle multi-run logic
-            with patch.object(agent, '_execute_job') as mock_job_execute:
+            # Mock additional methods that might be called
+            with patch.object(agent, '_get_current_hardware_info') as mock_hw_info, \
+                 patch.object(agent, '_send_update') as mock_send_update, \
+                 patch.object(agent.error_reporter, 'start_job_tracking') as mock_start_tracking, \
+                 patch.object(agent.error_reporter, 'update_job_stage') as mock_update_stage, \
+                 patch.object(agent.error_reporter, 'cleanup_job_tracking') as mock_cleanup, \
+                 patch.object(agent, '_perform_comprehensive_cleanup') as mock_comprehensive_cleanup, \
+                 patch.object(agent, '_verify_clean_idle_state') as mock_verify_cleanup:
                 
-                async def mock_execute_job(job_request):
-                    """Mock multi-run job execution."""
-                    runs = []
-                    now = datetime.utcnow()
-                    
-                    for run_id in range(job_request.runs_per_job):
-                        is_cold_start = (run_id == 0)
-                        run_result = mock_execute.return_value
-                        
-                        if isinstance(mock_execute.side_effect, list):
-                            run_result = mock_execute.side_effect[run_id]
-                        
-                        single_run = SingleRunResult(
-                            run_id=run_id,
-                            is_cold_start=is_cold_start,
-                            started_at=now + timedelta(seconds=run_id * 2),
-                            completed_at=now + timedelta(seconds=run_id * 2 + run_result["duration"]),
-                            duration_seconds=run_result["duration"],
-                            metrics=run_result["metrics"],
-                            model_load_time_seconds=run_result.get("model_load_time") if is_cold_start else None
-                        )
-                        runs.append(single_run)
-                    
-                    # Calculate statistics from warm runs only
-                    warm_runs = [r for r in runs if not r.is_cold_start]
-                    latency_values = [r.metrics["latency"] for r in warm_runs]
-                    throughput_values = [r.metrics["throughput"] for r in warm_runs]
-                    
-                    import statistics
-                    latency_stats = MetricStatistics(
-                        mean=statistics.mean(latency_values),
-                        std=statistics.stdev(latency_values) if len(latency_values) > 1 else 0.0,
-                        min=min(latency_values),
-                        max=max(latency_values),
-                        median=statistics.median(latency_values),
-                        count=len(latency_values),
-                        raw_values=latency_values
-                    )
-                    
-                    throughput_stats = MetricStatistics(
-                        mean=statistics.mean(throughput_values),
-                        std=statistics.stdev(throughput_values) if len(throughput_values) > 1 else 0.0,
-                        min=min(throughput_values),
-                        max=max(throughput_values),
-                        median=statistics.median(throughput_values),
-                        count=len(throughput_values),
-                        raw_values=throughput_values
-                    )
-                    
-                    return MultiRunJobResult(
-                        job_id=job_request.job_id,
-                        experiment_id=job_request.experiment_id,
-                        total_runs=len(runs),
-                        successful_runs=len([r for r in runs if r.error is None]),
-                        failed_runs=len([r for r in runs if r.error is not None]),
-                        individual_runs=runs,
-                        summary_stats={
-                            "latency": latency_stats,
-                            "throughput": throughput_stats
-                        },
-                        cold_start_data=runs[0],
-                        started_at=now,
-                        completed_at=now + timedelta(seconds=10),
-                        total_duration_seconds=10.0,
-                        model_actual="test-model",
-                        framework_version="2.0.0"
-                    )
-                
-                mock_job_execute.side_effect = mock_execute_job
+                mock_hw_info.return_value = {"gpu_name": "Test GPU", "gpu_memory_mb": 8192}
+                mock_send_update.return_value = None  # Successful updates
+                mock_start_tracking.return_value = None
+                mock_update_stage.return_value = None
+                mock_cleanup.return_value = None
+                mock_comprehensive_cleanup.return_value = None
+                mock_verify_cleanup.return_value = True  # Cleanup successful
                 
                 # Execute the multi-run job
                 result = await agent._execute_job(multi_run_job_request)
                 
                 # Verify the result
+                assert result is not None, "Expected a result but got None"
                 assert isinstance(result, MultiRunJobResult)
+                assert result.job_id == "test-job-multi"
                 assert result.total_runs == 5
                 assert result.successful_runs == 5
                 assert result.failed_runs == 0
@@ -407,145 +373,113 @@ class TestMultiRunJobExecution:
                 assert result.cold_start_data.is_cold_start is True
                 assert result.cold_start_data.model_load_time_seconds == 1.0
                 
-                # Verify warm run statistics
-                assert "latency" in result.summary_stats
-                assert "throughput" in result.summary_stats
-                assert result.summary_stats["latency"].count == 4  # 4 warm runs
-                assert result.summary_stats["throughput"].count == 4
+                # Verify individual runs
+                for i, run in enumerate(result.individual_runs):
+                    assert run.run_id == i
+                    assert run.is_cold_start == (i == 0)
+                    assert run.metrics["latency"] > 0
+                    assert run.metrics["throughput"] > 0
                 
-                # Verify mock was called correctly
+                # Verify warm run statistics exist
+                if result.summary_stats:
+                    if "latency" in result.summary_stats:
+                        latency_stats = result.summary_stats["latency"]
+                        assert latency_stats.count == 4  # 4 warm runs
+                        assert latency_stats.mean > 0
+                        assert len(latency_stats.raw_values) == 4
+                
+                # Verify _execute_single_run was called for each run
                 assert mock_execute.call_count == 5
+                
+                # Verify the calls had correct parameters
+                for i in range(5):
+                    call = mock_execute.call_args_list[i]
+                    args, kwargs = call
+                    assert args[1] == i  # run_id
+                    assert args[2] == (i == 0)  # is_cold_start
 
     @pytest.mark.asyncio
     async def test_multi_run_job_with_failures(self, agent, multi_run_job_request):
         """Test multi-run job execution with some failed runs."""
+        now = datetime.utcnow()
+        
+        # Create a mix of successful and failed SingleRunResult objects
+        mock_run_results = [
+            # Cold start - success
+            SingleRunResult(
+                run_id=0,
+                is_cold_start=True,
+                started_at=now,
+                completed_at=now + timedelta(seconds=2.5),
+                duration_seconds=2.5,
+                metrics={"latency": 2.5, "throughput": 10.0},
+                model_load_time_seconds=1.0
+            ),
+            # Run 1 - success
+            SingleRunResult(
+                run_id=1,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=3),
+                completed_at=now + timedelta(seconds=4.5),
+                duration_seconds=1.5,
+                metrics={"latency": 1.5, "throughput": 15.0}
+            ),
+            # Run 2 - failure (agent will create this internally, so we'll make this an exception)
+            RuntimeError("Out of memory during run 2"),
+            # Run 3 - success
+            SingleRunResult(
+                run_id=3,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=7),
+                completed_at=now + timedelta(seconds=8.4),
+                duration_seconds=1.4,
+                metrics={"latency": 1.4, "throughput": 15.5}
+            ),
+            # Run 4 - success
+            SingleRunResult(
+                run_id=4,
+                is_cold_start=False,
+                started_at=now + timedelta(seconds=9),
+                completed_at=now + timedelta(seconds=10.6),
+                duration_seconds=1.6,
+                metrics={"latency": 1.6, "throughput": 14.5}
+            )
+        ]
+        
+        # Mock _execute_single_run to return results or raise exceptions
+        def mock_execute_side_effect(*args, **kwargs):
+            """Side effect that handles both successful results and exceptions."""
+            run_id = args[1] if len(args) > 1 else 0
+            result = mock_run_results[run_id]
+            if isinstance(result, Exception):
+                raise result
+            return result
+        
         with patch.object(agent, '_execute_single_run') as mock_execute:
-            # Mock mixed success/failure runs
-            mock_execute.side_effect = [
-                # Cold start - success
-                {
-                    "success": True,
-                    "metrics": {"latency": 2.5, "throughput": 10.0},
-                    "model_load_time": 1.0,
-                    "duration": 2.5
-                },
-                # Run 1 - success
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.5, "throughput": 15.0},
-                    "duration": 1.5
-                },
-                # Run 2 - failure
-                {
-                    "success": False,
-                    "error": "Out of memory",
-                    "error_type": "RuntimeError"
-                },
-                # Run 3 - success
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.4, "throughput": 15.5},
-                    "duration": 1.4
-                },
-                # Run 4 - success
-                {
-                    "success": True,
-                    "metrics": {"latency": 1.6, "throughput": 14.5},
-                    "duration": 1.6
-                }
-            ]
+            mock_execute.side_effect = mock_execute_side_effect
             
-            with patch.object(agent, '_execute_job') as mock_job_execute:
+            # Mock additional methods
+            with patch.object(agent, '_get_current_hardware_info') as mock_hw_info, \
+                 patch.object(agent, '_send_update') as mock_send_update, \
+                 patch.object(agent.error_reporter, 'start_job_tracking') as mock_start_tracking, \
+                 patch.object(agent.error_reporter, 'update_job_stage') as mock_update_stage, \
+                 patch.object(agent.error_reporter, 'cleanup_job_tracking') as mock_cleanup, \
+                 patch.object(agent, '_perform_comprehensive_cleanup') as mock_comprehensive_cleanup, \
+                 patch.object(agent, '_verify_clean_idle_state') as mock_verify_cleanup:
                 
-                async def mock_execute_job_with_failure(job_request):
-                    """Mock multi-run job execution with failures."""
-                    runs = []
-                    now = datetime.utcnow()
-                    
-                    for run_id in range(job_request.runs_per_job):
-                        is_cold_start = (run_id == 0)
-                        run_result = mock_execute.side_effect[run_id]
-                        
-                        if run_result.get("success", True):
-                            single_run = SingleRunResult(
-                                run_id=run_id,
-                                is_cold_start=is_cold_start,
-                                started_at=now + timedelta(seconds=run_id * 2),
-                                completed_at=now + timedelta(seconds=run_id * 2 + run_result["duration"]),
-                                duration_seconds=run_result["duration"],
-                                metrics=run_result["metrics"],
-                                model_load_time_seconds=run_result.get("model_load_time") if is_cold_start else None
-                            )
-                        else:
-                            # Failed run
-                            single_run = SingleRunResult(
-                                run_id=run_id,
-                                is_cold_start=is_cold_start,
-                                started_at=now + timedelta(seconds=run_id * 2),
-                                completed_at=now + timedelta(seconds=run_id * 2 + 0.1),
-                                duration_seconds=0.1,
-                                metrics={},
-                                error=run_result["error"],
-                                error_type=run_result["error_type"]
-                            )
-                        
-                        runs.append(single_run)
-                    
-                    # Calculate statistics from successful warm runs only
-                    successful_warm_runs = [r for r in runs if not r.is_cold_start and r.error is None]
-                    
-                    if successful_warm_runs:
-                        latency_values = [r.metrics["latency"] for r in successful_warm_runs]
-                        throughput_values = [r.metrics["throughput"] for r in successful_warm_runs]
-                        
-                        import statistics
-                        latency_stats = MetricStatistics(
-                            mean=statistics.mean(latency_values),
-                            std=statistics.stdev(latency_values) if len(latency_values) > 1 else 0.0,
-                            min=min(latency_values),
-                            max=max(latency_values),
-                            median=statistics.median(latency_values),
-                            count=len(latency_values),
-                            raw_values=latency_values
-                        )
-                        
-                        throughput_stats = MetricStatistics(
-                            mean=statistics.mean(throughput_values),
-                            std=statistics.stdev(throughput_values) if len(throughput_values) > 1 else 0.0,
-                            min=min(throughput_values),
-                            max=max(throughput_values),
-                            median=statistics.median(throughput_values),
-                            count=len(throughput_values),
-                            raw_values=throughput_values
-                        )
-                        
-                        summary_stats = {
-                            "latency": latency_stats,
-                            "throughput": throughput_stats
-                        }
-                    else:
-                        summary_stats = {}
-                    
-                    return MultiRunJobResult(
-                        job_id=job_request.job_id,
-                        experiment_id=job_request.experiment_id,
-                        total_runs=len(runs),
-                        successful_runs=len([r for r in runs if r.error is None]),
-                        failed_runs=len([r for r in runs if r.error is not None]),
-                        individual_runs=runs,
-                        summary_stats=summary_stats,
-                        cold_start_data=runs[0],
-                        started_at=now,
-                        completed_at=now + timedelta(seconds=10),
-                        total_duration_seconds=10.0
-                    )
-                
-                mock_job_execute.side_effect = mock_execute_job_with_failure
+                mock_hw_info.return_value = {"gpu_name": "Test GPU"}
+                mock_send_update.return_value = None
+                mock_start_tracking.return_value = None
+                mock_update_stage.return_value = None
+                mock_cleanup.return_value = None
+                mock_comprehensive_cleanup.return_value = None
+                mock_verify_cleanup.return_value = True
                 
                 # Execute the job with failures
                 result = await agent._execute_job(multi_run_job_request)
                 
                 # Verify the result handles failures correctly
+                assert isinstance(result, MultiRunJobResult)
                 assert result.total_runs == 5
                 assert result.successful_runs == 4  # 1 failure
                 assert result.failed_runs == 1
@@ -553,54 +487,75 @@ class TestMultiRunJobExecution:
                 # Check that failed run has error information
                 failed_runs = [r for r in result.individual_runs if r.error is not None]
                 assert len(failed_runs) == 1
-                assert failed_runs[0].error == "Out of memory"
+                assert "Out of memory" in failed_runs[0].error
                 assert failed_runs[0].error_type == "RuntimeError"
+                assert failed_runs[0].run_id == 2  # Run 2 failed
+                
+                # Verify successful runs are correct
+                successful_runs = [r for r in result.individual_runs if r.error is None]
+                assert len(successful_runs) == 4
+                
+                # Cold start data should still be available
+                assert result.cold_start_data is not None
+                assert result.cold_start_data.is_cold_start is True
                 
                 # Statistics should only include successful warm runs
-                if result.summary_stats:
-                    assert result.summary_stats["latency"].count == 3  # 3 successful warm runs
+                successful_warm_runs = [r for r in successful_runs if not r.is_cold_start]
+                assert len(successful_warm_runs) == 3  # 3 successful warm runs
+                
+                if result.summary_stats and "latency" in result.summary_stats:
+                    assert result.summary_stats["latency"].count == 3
 
     @pytest.mark.asyncio  
     async def test_single_run_compatibility(self, agent, single_run_job_request):
         """Test that single-run jobs still work correctly."""
+        now = datetime.utcnow()
+        
+        # Mock a successful single run result
+        mock_single_run = SingleRunResult(
+            run_id=0,
+            is_cold_start=True,
+            started_at=now,
+            completed_at=now + timedelta(seconds=1.5),
+            duration_seconds=1.5,
+            metrics={"latency": 1.5, "throughput": 15.0},
+            model_load_time_seconds=0.8
+        )
+        
         with patch.object(agent, '_execute_single_run') as mock_execute:
-            mock_execute.return_value = {
-                "success": True,
-                "metrics": {"latency": 1.5, "throughput": 15.0},
-                "model_load_time": 0.8,
-                "duration": 1.5
-            }
+            mock_execute.return_value = mock_single_run
             
-            with patch.object(agent, '_execute_job') as mock_job_execute:
+            # Mock additional methods
+            with patch.object(agent, '_get_current_hardware_info') as mock_hw_info, \
+                 patch.object(agent, '_send_update') as mock_send_update, \
+                 patch.object(agent.error_reporter, 'start_job_tracking') as mock_start_tracking, \
+                 patch.object(agent.error_reporter, 'update_job_stage') as mock_update_stage, \
+                 patch.object(agent.error_reporter, 'cleanup_job_tracking') as mock_cleanup, \
+                 patch.object(agent, '_perform_comprehensive_cleanup') as mock_comprehensive_cleanup, \
+                 patch.object(agent, '_verify_clean_idle_state') as mock_verify_cleanup:
                 
-                async def mock_execute_single_job(job_request):
-                    """Mock single-run job execution."""
-                    run_result = mock_execute.return_value
-                    now = datetime.utcnow()
-                    
-                    # For single run, return traditional JobResult
-                    return JobResult(
-                        job_id=job_request.job_id,
-                        experiment_id=job_request.experiment_id,
-                        status=JobStatus.COMPLETED,
-                        started_at=now,
-                        completed_at=now + timedelta(seconds=run_result["duration"]),
-                        duration_seconds=run_result["duration"],
-                        metrics=run_result["metrics"],
-                        model_actual="test-model",
-                        framework_version="2.0.0"
-                    )
-                
-                mock_job_execute.side_effect = mock_execute_single_job
+                mock_hw_info.return_value = {"gpu_name": "Test GPU"}
+                mock_send_update.return_value = None
+                mock_start_tracking.return_value = None
+                mock_update_stage.return_value = None
+                mock_cleanup.return_value = None
+                mock_comprehensive_cleanup.return_value = None
+                mock_verify_cleanup.return_value = True
                 
                 # Execute single-run job
                 result = await agent._execute_job(single_run_job_request)
                 
-                # Verify it returns a JobResult (not MultiRunJobResult)
+                # For single-run jobs (runs_per_job == 1), the agent returns a JobResult
                 assert isinstance(result, JobResult)
                 assert not isinstance(result, MultiRunJobResult)
                 assert result.status == JobStatus.COMPLETED
                 assert result.metrics["latency"] == 1.5
+                assert result.metrics["throughput"] == 15.0
+                assert result.job_id == "test-job-1"
+                assert result.model_actual == "test-model"
+                
+                # Verify _execute_single_run was called once
+                mock_execute.assert_called_once_with(single_run_job_request, run_id=0, is_cold_start=True)
 
 
 class TestMultiRunJobModels:

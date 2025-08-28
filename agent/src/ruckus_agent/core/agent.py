@@ -9,7 +9,7 @@ from datetime import datetime
 
 from ruckus_common.models import (
     JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
-    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult
+    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage
 )
 from .config import Settings
 from .models import AgentRegistration, JobErrorReport
@@ -224,7 +224,7 @@ class Agent:
             update = JobUpdate(
                 job_id=job.job_id,
                 status=JobStatus.RUNNING,
-                stage="initializing",
+                stage=JobStage.INITIALIZING,
             )
             await self._send_update(update)
             
@@ -241,13 +241,15 @@ class Agent:
             update = JobUpdate(
                 job_id=job.job_id,
                 status=JobStatus.COMPLETED,
-                stage="completed",
+                stage=JobStage.FINALIZING,
                 output=job_result,
                 timestamp=datetime.utcnow()
             )
             await self._send_update(update)
             
             logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully")
+            
+            return job_result
             
         except Exception as e:
             logger.error(f"Agent {self.agent_id} job {job.job_id} execution failed: {e}")
