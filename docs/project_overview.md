@@ -20,6 +20,42 @@ The Agent Protocol will define how the ruckus server and ruckus agents communica
 
 The Agent will persist data for experiments in progress to the filesystem to provide durability.
 
+## Multi-Run Job System
+RUCKUS implements a sophisticated multi-run job system to provide statistically reliable performance measurements. This system addresses the inherent variability in ML model performance across runs by executing multiple iterations and providing comprehensive statistical analysis.
+
+### Key Features:
+- **Configurable Runs**: Jobs can specify `runs_per_job` parameter (1-100) for desired statistical confidence
+- **Cold Start Separation**: First run includes model loading time, tracked separately from subsequent "warm" runs
+- **Statistical Analysis**: Automatic computation of mean ± standard deviation, outlier detection, and raw data retention
+- **Enhanced Data Models**: 
+  - `SingleRunResult`: Individual run metrics with cold start indicators
+  - `MetricStatistics`: Statistical summaries with outlier identification
+  - `MultiRunJobResult`: Complete multi-run analysis with aggregated statistics
+
+### Implementation:
+The agent executes jobs sequentially on the same hardware to ensure consistency. Cold start overhead is measured during the first run, while performance statistics are calculated from warm runs to provide accurate inference performance metrics.
+
+## Advanced GPU Detection and Benchmarking
+RUCKUS includes comprehensive GPU detection and benchmarking capabilities to accurately characterize hardware performance across different platforms and configurations.
+
+### Multi-Layer Detection System:
+1. **Primary (pynvml)**: NVIDIA Management Library for comprehensive GPU information
+   - Live metrics (temperature, power, utilization)
+   - Memory allocation and usage
+   - Clock speeds and thermal states
+2. **Fallback (PyTorch)**: Cross-platform GPU detection
+   - NVIDIA CUDA, Apple Silicon MPS, AMD ROCm support
+   - Device properties and compute capabilities
+3. **Secondary (nvidia-smi)**: XML parsing backup for NVIDIA GPUs
+   - Compatibility when pynvml unavailable
+   - Full system information extraction
+
+### Real-Time GPU Benchmarking:
+- **Memory Bandwidth Testing**: Adaptive tensor sizes based on available VRAM (512x512 to 16384x16384)
+- **Multi-Precision FLOPS**: Testing across FP32, FP16, BF16, INT8, FP8 precisions
+- **Tensor Core Mapping**: Automatic generation detection (1st gen Volta → 4th gen Hopper)
+- **Live Monitoring**: Temperature, utilization, and power tracking during benchmarks
+
 
 # API Structure
 Experiment Management Endpoints will allow users to create new experiments with model/framework/hardware combinations, retrieve experiment status and progress, list all experiments, and delete or modify existing experiments.
