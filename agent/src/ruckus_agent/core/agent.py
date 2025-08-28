@@ -7,7 +7,10 @@ import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from ruckus_common.models import JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum
+from ruckus_common.models import (
+    JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
+    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult
+)
 from .config import Settings
 from .models import AgentRegistration, JobErrorReport
 from .detector import AgentDetector
@@ -200,8 +203,8 @@ class Agent:
                 logger.error(f"Agent {self.agent_id} job execution error: {e}")
 
     async def _execute_job(self, job: JobRequest):
-        """Execute a single job with comprehensive error handling."""
-        logger.info(f"Agent {self.agent_id} executing job {job.job_id}")
+        """Execute a job with support for multiple runs and cold start tracking."""
+        logger.info(f"Agent {self.agent_id} executing job {job.job_id} with {job.runs_per_job} runs")
         
         start_time = datetime.utcnow()
         error_report = None
@@ -225,20 +228,25 @@ class Agent:
             )
             await self._send_update(update)
             
-            # TODO: Implement actual job execution stages
-            await self.error_reporter.update_job_stage(job.job_id, "model_loading")
+            # Execute multi-run job
+            if job.runs_per_job == 1:
+                # Single run job - simpler path
+                result = await self._execute_single_run(job, run_id=0, is_cold_start=True)
+                job_result = self._convert_single_to_job_result(result, job, start_time)
+            else:
+                # Multi-run job - with cold start separation
+                job_result = await self._execute_multi_run_job(job, start_time)
             
-            # Simulate model loading stage
-            await asyncio.sleep(1)  # Replace with actual model loading
+            # Send final success update
+            update = JobUpdate(
+                job_id=job.job_id,
+                status=JobStatus.COMPLETED,
+                stage="completed",
+                output=job_result,
+                timestamp=datetime.utcnow()
+            )
+            await self._send_update(update)
             
-            await self.error_reporter.update_job_stage(job.job_id, "inference")
-            
-            # Simulate inference stage  
-            await asyncio.sleep(2)  # Replace with actual inference
-            
-            await self.error_reporter.update_job_stage(job.job_id, "completing")
-            
-            # Job completed successfully
             logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully")
             
         except Exception as e:
@@ -287,6 +295,252 @@ class Agent:
             # Clean up job tracking and running jobs
             await self.error_reporter.cleanup_job_tracking(job.job_id)
             self.running_jobs.pop(job.job_id, None)
+
+    async def _execute_multi_run_job(self, job: JobRequest, job_start_time: datetime):
+        """Execute a multi-run job with cold start separation and statistical analysis."""
+        import statistics
+        
+        logger.info(f"Starting multi-run job {job.job_id} with {job.runs_per_job} runs")
+        
+        individual_runs = []
+        successful_runs = 0
+        failed_runs = 0
+        
+        # Execute runs sequentially
+        for run_id in range(job.runs_per_job):
+            is_cold_start = (run_id == 0)  # First run is cold start
+            logger.info(f"Executing run {run_id + 1}/{job.runs_per_job} (cold_start={is_cold_start})")
+            
+            try:
+                run_result = await self._execute_single_run(job, run_id, is_cold_start)
+                individual_runs.append(run_result)
+                successful_runs += 1
+                logger.info(f"Run {run_id + 1} completed successfully")
+            except Exception as e:
+                logger.error(f"Run {run_id + 1} failed: {e}")
+                # Create failed run result
+                failed_run = SingleRunResult(
+                    run_id=run_id,
+                    is_cold_start=is_cold_start,
+                    started_at=datetime.utcnow(),
+                    completed_at=datetime.utcnow(),
+                    duration_seconds=0.0,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                individual_runs.append(failed_run)
+                failed_runs += 1
+        
+        # Separate cold start from warm runs for statistics
+        cold_start_data = individual_runs[0] if individual_runs and individual_runs[0].is_cold_start else None
+        warm_runs = [run for run in individual_runs if not run.is_cold_start and run.error is None]
+        
+        # Calculate summary statistics for warm runs only
+        summary_stats = {}
+        if warm_runs:
+            summary_stats = self._calculate_multi_run_statistics(warm_runs)
+        
+        # Get GPU benchmark results if available
+        gpu_benchmarks = None
+        if hasattr(self, '_current_job_benchmarks') and job.job_id in self._current_job_benchmarks:
+            gpu_benchmarks = self._current_job_benchmarks.pop(job.job_id)
+        
+        # Create final result
+        job_result = MultiRunJobResult(
+            job_id=job.job_id,
+            experiment_id=job.experiment_id,
+            total_runs=job.runs_per_job,
+            successful_runs=successful_runs,
+            failed_runs=failed_runs,
+            individual_runs=individual_runs,
+            summary_stats=summary_stats,
+            cold_start_data=cold_start_data,
+            started_at=job_start_time,
+            completed_at=datetime.utcnow(),
+            total_duration_seconds=(datetime.utcnow() - job_start_time).total_seconds(),
+            model_actual=job.model,
+            framework_version="vllm-0.2.0",  # TODO: Get actual version
+            hardware_info=await self._get_current_hardware_info(),
+            gpu_benchmark_results=gpu_benchmarks
+        )
+        
+        logger.info(f"Multi-run job {job.job_id} completed: {successful_runs} successful, {failed_runs} failed")
+        return job_result
+
+    async def _execute_single_run(self, job: JobRequest, run_id: int, is_cold_start: bool) -> SingleRunResult:
+        """Execute a single run of a job with detailed metrics tracking."""
+        
+        run_start = datetime.utcnow()
+        model_load_time = None
+        model_load_memory = None
+        
+        try:
+            # Update job stage
+            stage = f"run_{run_id + 1}_starting"
+            await self.error_reporter.update_job_stage(job.job_id, stage)
+            
+            # Cold start: Load model and track loading metrics
+            if is_cold_start:
+                await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_model_loading")
+                load_start = datetime.utcnow()
+                
+                # TODO: Implement actual model loading with VRAM tracking
+                await asyncio.sleep(0.5)  # Simulate model loading time
+                model_load_time = (datetime.utcnow() - load_start).total_seconds()
+                model_load_memory = 8192.0  # TODO: Get actual VRAM usage
+                
+                logger.info(f"Cold start model load completed in {model_load_time:.2f}s")
+                
+                # Run GPU benchmarks during cold start (when GPU is available)
+                if run_id == 0:  # Only run benchmarks on the first cold start
+                    await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_gpu_benchmarking")
+                    gpu_benchmark_results = await self._run_gpu_benchmarks()
+                    if gpu_benchmark_results:
+                        # Store benchmarks for inclusion in final result
+                        if not hasattr(self, '_current_job_benchmarks'):
+                            self._current_job_benchmarks = {}
+                        self._current_job_benchmarks[job.job_id] = gpu_benchmark_results
+            
+            # Inference execution
+            await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_inference")
+            
+            # TODO: Implement actual inference with metrics collection
+            await asyncio.sleep(0.2)  # Simulate inference time
+            
+            # Collect performance metrics
+            metrics = {
+                "inference_time_seconds": 0.15 + (run_id * 0.01),  # Simulate slight variation
+                "throughput_tokens_per_sec": 120.0 - (run_id * 2),
+                "memory_usage_mb": 6400.0 + (run_id * 50),
+                "gpu_utilization_percent": 85.0 + (run_id * 1.5)
+            }
+            
+            run_end = datetime.utcnow()
+            duration = (run_end - run_start).total_seconds()
+            
+            # Create successful run result
+            return SingleRunResult(
+                run_id=run_id,
+                is_cold_start=is_cold_start,
+                started_at=run_start,
+                completed_at=run_end,
+                duration_seconds=duration,
+                metrics=metrics,
+                model_load_time_seconds=model_load_time,
+                model_load_memory_mb=model_load_memory
+            )
+            
+        except Exception as e:
+            run_end = datetime.utcnow()
+            duration = (run_end - run_start).total_seconds()
+            
+            # Create failed run result
+            return SingleRunResult(
+                run_id=run_id,
+                is_cold_start=is_cold_start,
+                started_at=run_start,
+                completed_at=run_end,
+                duration_seconds=duration,
+                error=str(e),
+                error_type=type(e).__name__,
+                model_load_time_seconds=model_load_time,
+                model_load_memory_mb=model_load_memory
+            )
+
+    def _calculate_multi_run_statistics(self, warm_runs) -> dict:
+        """Calculate statistical summary for metrics across warm runs."""
+        import statistics
+        
+        if not warm_runs:
+            return {}
+        
+        # Collect all metrics from warm runs
+        metric_data = {}
+        for run in warm_runs:
+            for metric_name, value in run.metrics.items():
+                if isinstance(value, (int, float)):
+                    if metric_name not in metric_data:
+                        metric_data[metric_name] = []
+                    metric_data[metric_name].append(value)
+        
+        # Calculate statistics for each metric
+        summary_stats = {}
+        for metric_name, values in metric_data.items():
+            if len(values) >= 1:
+                mean_val = statistics.mean(values)
+                std_val = statistics.stdev(values) if len(values) > 1 else 0.0
+                
+                # Identify outliers (>2σ from mean)
+                outliers = []
+                for i, val in enumerate(values):
+                    if abs(val - mean_val) > (2 * std_val):
+                        outliers.append(i)
+                
+                summary_stats[metric_name] = MetricStatistics(
+                    mean=mean_val,
+                    std=std_val,
+                    min=min(values),
+                    max=max(values),
+                    median=statistics.median(values),
+                    count=len(values),
+                    raw_values=values,
+                    outliers=outliers
+                )
+        
+        return summary_stats
+
+    def _convert_single_to_job_result(self, single_result: SingleRunResult, job: JobRequest, job_start_time: datetime):
+        """Convert a SingleRunResult to a legacy JobResult format for single-run jobs."""
+        
+        return JobResult(
+            job_id=job.job_id,
+            experiment_id=job.experiment_id,
+            status=JobStatus.COMPLETED if single_result.error is None else JobStatus.FAILED,
+            started_at=job_start_time,
+            completed_at=single_result.completed_at,
+            duration_seconds=single_result.duration_seconds,
+            metrics=single_result.metrics,
+            model_actual=job.model,
+            framework_version="vllm-0.2.0",  # TODO: Get actual version
+            error=single_result.error,
+            error_type=single_result.error_type
+        )
+
+    async def _get_current_hardware_info(self) -> dict:
+        """Get current hardware information for result metadata."""
+        # TODO: Implement actual hardware info collection
+        return {
+            "gpu_name": "Tesla V100",
+            "gpu_memory_total_mb": 16384,
+            "gpu_driver_version": "525.60.13",
+            "cuda_version": "11.8"
+        }
+
+    async def _run_gpu_benchmarks(self) -> Optional[dict]:
+        """Run comprehensive GPU benchmarks during cold start."""
+        try:
+            from ..utils.gpu_benchmark import GPUBenchmark
+            
+            logger.info("Starting GPU benchmarks during cold start")
+            
+            benchmark = GPUBenchmark()
+            if not await benchmark.initialize():
+                logger.warning("Failed to initialize GPU benchmark")
+                return None
+            
+            # Get available GPU memory (simulate with a reasonable amount)
+            # TODO: Get actual available GPU memory
+            available_memory_mb = 8192  # Simulate 8GB available
+            
+            # Run comprehensive benchmarks
+            results = await benchmark.run_comprehensive_benchmark(available_memory_mb)
+            
+            logger.info(f"GPU benchmarks completed on device: {results.get('benchmark_device', 'unknown')}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"GPU benchmarking failed: {e}")
+            return None
 
     async def _cleanup_failed_job(self, job: JobRequest, error: Exception) -> List[str]:
         """Perform cleanup actions after a job fails."""

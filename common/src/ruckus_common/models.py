@@ -241,6 +241,7 @@ class JobSpec(TimestampedModel):
     timeout_seconds: int = Field(default=3600, gt=0)
     max_retries: int = Field(default=3, ge=0)
     priority: int = Field(default=0, ge=0, le=10)
+    runs_per_job: int = Field(default=1, ge=1, description="Number of runs to execute sequentially for statistical reliability")
     status: JobStatus = JobStatus.QUEUED
     retry_count: int = Field(default=0, ge=0)
     
@@ -260,6 +261,7 @@ class JobRequest(BaseModel):
     required_metrics: List[str] = Field(default_factory=list)
     optional_metrics: List[str] = Field(default_factory=list)
     timeout_seconds: int = Field(default=3600, gt=0)
+    runs_per_job: int = Field(default=1, ge=1, description="Number of runs to execute sequentially for statistical reliability")
     callback_url: Optional[str] = None
 
 
@@ -303,6 +305,97 @@ class JobResult(BaseModel):
     def validate_duration(cls, v):
         if v < 0:
             raise ValueError("duration_seconds must be non-negative")
+        return v
+
+
+class SingleRunResult(BaseModel):
+    """Results from a single run within a multi-run job."""
+    run_id: int = Field(ge=0, description="Sequential run number (0-indexed)")
+    is_cold_start: bool = Field(description="Whether this run included model loading")
+    started_at: datetime
+    completed_at: datetime
+    duration_seconds: float = Field(ge=0)
+    
+    # Performance metrics for this specific run
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Model loading metrics (only present for cold start runs)
+    model_load_time_seconds: Optional[float] = Field(default=None, ge=0)
+    model_load_memory_mb: Optional[float] = Field(default=None, ge=0)
+    
+    # Error information (if this run failed)
+    error: Optional[str] = None
+    error_type: Optional[str] = None
+    
+    @validator("model_load_time_seconds")
+    def validate_cold_start_timing(cls, v, values):
+        if v is not None and not values.get("is_cold_start", False):
+            raise ValueError("model_load_time_seconds should only be set for cold start runs")
+        return v
+
+
+class MetricStatistics(BaseModel):
+    """Statistical summary for a metric across multiple runs."""
+    mean: float
+    std: float
+    min: float
+    max: float
+    median: float
+    count: int = Field(ge=1)
+    raw_values: List[float] = Field(description="All raw values for reference")
+    outliers: List[int] = Field(default_factory=list, description="Run IDs identified as outliers (>2σ)")
+    
+    @validator("raw_values")
+    def validate_raw_values_count(cls, v, values):
+        count = values.get("count", 0)
+        if len(v) != count:
+            raise ValueError(f"raw_values length ({len(v)}) must match count ({count})")
+        return v
+
+
+class MultiRunJobResult(BaseModel):
+    """Enhanced result for multi-run jobs with cold start separation and statistical analysis."""
+    job_id: str
+    experiment_id: str
+    total_runs: int = Field(ge=1)
+    successful_runs: int = Field(ge=0)
+    failed_runs: int = Field(ge=0)
+    
+    # Individual run data
+    individual_runs: List[SingleRunResult] = Field(description="Results from each individual run")
+    
+    # Aggregated statistics (computed from warm runs only, excluding cold start)
+    summary_stats: Dict[str, MetricStatistics] = Field(
+        default_factory=dict,
+        description="Statistical summary for each metric across warm runs"
+    )
+    
+    # Cold start specific data (separate from warm run statistics)
+    cold_start_data: Optional[SingleRunResult] = Field(
+        default=None,
+        description="Cold start run data with model loading metrics"
+    )
+    
+    # Overall job metadata
+    started_at: datetime
+    completed_at: datetime
+    total_duration_seconds: float = Field(ge=0)
+    model_actual: Optional[str] = None
+    framework_version: Optional[str] = None
+    hardware_info: Dict[str, Any] = Field(default_factory=dict)
+    
+    # GPU benchmarking results (if performed)
+    gpu_benchmark_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Memory bandwidth and FLOPS benchmark results"
+    )
+    
+    @validator("successful_runs", "failed_runs")
+    def validate_run_counts(cls, v, values):
+        total = values.get("total_runs", 0)
+        if "successful_runs" in values and "failed_runs" in values:
+            if values["successful_runs"] + values["failed_runs"] != total:
+                raise ValueError("successful_runs + failed_runs must equal total_runs")
         return v
 
 
