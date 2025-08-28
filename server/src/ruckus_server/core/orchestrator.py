@@ -16,7 +16,8 @@ from datetime import datetime
 from ruckus_common.models import (
     ExperimentSpec, ExperimentExecution, ExperimentSubmission, ExperimentSubmissionResponse,
     JobRequest, JobSpec, JobStatus, AgentRequirements, AgentScore, JobAssignment,
-    AgentMatchingRequest, AgentMatchingResponse, RegisteredAgentInfo, AgentStatus, AgentStatusEnum
+    AgentMatchingRequest, AgentMatchingResponse, RegisteredAgentInfo, AgentStatus, AgentStatusEnum,
+    MultiRunJobResult, SingleRunResult, MetricStatistics
 )
 from .storage.base import StorageBackend
 
@@ -147,7 +148,8 @@ class ExperimentOrchestrator:
                     timeout_seconds=spec.timeout_seconds,
                     max_retries=spec.max_retries,
                     priority=spec.priority,
-                    status=JobStatus.QUEUED
+                    status=JobStatus.QUEUED,
+                    runs_per_job=getattr(spec, 'runs_per_job', 1)  # Support multi-run jobs
                 )
                 
                 jobs.append(job_spec)
@@ -397,7 +399,8 @@ class ExperimentOrchestrator:
                 task_type=job_spec.task_type,
                 task_config=job_spec.task_config,
                 parameters=job_spec.parameters,
-                timeout_seconds=job_spec.timeout_seconds
+                timeout_seconds=job_spec.timeout_seconds,
+                runs_per_job=job_spec.runs_per_job
             )
             
             # TODO: Actually send HTTP request to agent
@@ -456,7 +459,7 @@ class ExperimentOrchestrator:
         # Fall back to storage
         return await self.storage.get_experiment_execution(experiment_id)
     
-    async def handle_job_update(self, job_id: str, status: JobStatus, result_data: Optional[dict] = None):
+    async def handle_job_update(self, job_id: str, status: JobStatus, result_data: Optional[dict] = None, multi_run_result: Optional[MultiRunJobResult] = None):
         """Handle a job status update from an agent.
         
         Args:
@@ -479,7 +482,11 @@ class ExperimentOrchestrator:
             
             # Update job status and results
             job_spec.status = status
-            if result_data:
+            if multi_run_result:
+                # Store the enhanced multi-run result structure
+                job_spec.results = multi_run_result.model_dump()
+            elif result_data:
+                # Fallback for single-run results
                 job_spec.results = result_data
             await self.storage.update_job_spec(job_spec)
             
@@ -524,12 +531,27 @@ class ExperimentOrchestrator:
             for job_id in execution.completed_jobs:
                 job_spec = await self.storage.get_job_spec(job_id)
                 if job_spec and hasattr(job_spec, 'results') and job_spec.results:
-                    job_results.append({
+                    # Check if this is a multi-run result
+                    result_entry = {
                         'job_id': job_id,
                         'model': job_spec.model,
                         'parameters': job_spec.parameters,
                         'results': job_spec.results
-                    })
+                    }
+                    
+                    # Parse multi-run structure if present
+                    if isinstance(job_spec.results, dict) and 'total_runs' in job_spec.results:
+                        try:
+                            multi_run_result = MultiRunJobResult.model_validate(job_spec.results)
+                            result_entry['multi_run_data'] = multi_run_result
+                            result_entry['is_multi_run'] = True
+                        except Exception as e:
+                            self.logger.warning(f"Failed to parse multi-run result for job {job_id}: {e}")
+                            result_entry['is_multi_run'] = False
+                    else:
+                        result_entry['is_multi_run'] = False
+                    
+                    job_results.append(result_entry)
             
             # Generate aggregated summary
             summary = await self._generate_experiment_summary(execution, job_results)
@@ -564,43 +586,93 @@ class ExperimentOrchestrator:
             }
         
         try:
-            # Extract metrics from job results
+            # Extract metrics from job results with multi-run support
             all_metrics = {}
             model_performance = {}
             parameter_impact = {}
+            multi_run_summary = {'jobs_with_multi_runs': 0, 'total_individual_runs': 0}
             
             for job_result in job_results:
                 model = job_result['model']
                 parameters = job_result['parameters']
                 results = job_result['results']
+                is_multi_run = job_result.get('is_multi_run', False)
                 
                 # Track model performance
                 if model not in model_performance:
                     model_performance[model] = []
-                model_performance[model].append(results)
                 
-                # Collect all metrics
-                if isinstance(results, dict):
-                    for metric_name, metric_value in results.items():
-                        if isinstance(metric_value, (int, float)):
-                            if metric_name not in all_metrics:
-                                all_metrics[metric_name] = []
-                            all_metrics[metric_name].append({
-                                'value': metric_value,
-                                'model': model,
-                                'parameters': parameters
-                            })
+                if is_multi_run and 'multi_run_data' in job_result:
+                    # Handle multi-run results
+                    multi_run_data = job_result['multi_run_data']
+                    model_performance[model].append({
+                        'type': 'multi_run',
+                        'data': multi_run_data,
+                        'summary_stats': multi_run_data.summary_stats
+                    })
+                    
+                    multi_run_summary['jobs_with_multi_runs'] += 1
+                    multi_run_summary['total_individual_runs'] += multi_run_data.total_runs
+                    
+                    # Extract summary statistics as primary metrics
+                    for metric_name, metric_stats in multi_run_data.summary_stats.items():
+                        if metric_name not in all_metrics:
+                            all_metrics[metric_name] = []
+                        all_metrics[metric_name].append({
+                            'value': metric_stats.mean,
+                            'std': metric_stats.std,
+                            'min': metric_stats.min_value,
+                            'max': metric_stats.max_value,
+                            'outliers': len(metric_stats.outliers) if metric_stats.outliers else 0,
+                            'model': model,
+                            'parameters': parameters,
+                            'type': 'multi_run_summary',
+                            'sample_count': metric_stats.count
+                        })
+                else:
+                    # Handle single-run results
+                    model_performance[model].append({
+                        'type': 'single_run',
+                        'data': results
+                    })
+                    
+                    # Collect all metrics from single runs
+                    if isinstance(results, dict):
+                        for metric_name, metric_value in results.items():
+                            if isinstance(metric_value, (int, float)):
+                                if metric_name not in all_metrics:
+                                    all_metrics[metric_name] = []
+                                all_metrics[metric_name].append({
+                                    'value': metric_value,
+                                    'model': model,
+                                    'parameters': parameters,
+                                    'type': 'single_run'
+                                })
             
-            # Calculate aggregate statistics
+            # Calculate aggregate statistics with multi-run awareness
             metric_summaries = {}
             for metric_name, values in all_metrics.items():
                 numeric_values = [v['value'] for v in values]
                 if numeric_values:
+                    # Basic statistics
+                    mean_val = sum(numeric_values) / len(numeric_values)
+                    min_val = min(numeric_values)
+                    max_val = max(numeric_values)
+                    
+                    # Calculate standard deviation if we have enough data points
+                    std_val = None
+                    if len(numeric_values) > 1:
+                        variance = sum((x - mean_val) ** 2 for x in numeric_values) / (len(numeric_values) - 1)
+                        std_val = variance ** 0.5
+                    
                     metric_summaries[metric_name] = {
-                        'mean': sum(numeric_values) / len(numeric_values),
-                        'min': min(numeric_values),
-                        'max': max(numeric_values),
-                        'count': len(numeric_values)
+                        'mean': mean_val,
+                        'std': std_val,
+                        'min': min_val,
+                        'max': max_val,
+                        'count': len(numeric_values),
+                        'multi_run_jobs': len([v for v in values if v.get('type') == 'multi_run_summary']),
+                        'single_run_jobs': len([v for v in values if v.get('type') == 'single_run'])
                     }
             
             # Model comparison
@@ -615,6 +687,7 @@ class ExperimentOrchestrator:
                 'status': 'success',
                 'metric_summaries': metric_summaries,
                 'model_comparison': model_comparison,
+                'multi_run_summary': multi_run_summary,
                 'total_successful_jobs': len(job_results),
                 'unique_models_tested': len(model_performance),
                 'parameter_combinations': len(set(str(jr['parameters']) for jr in job_results))
@@ -628,10 +701,10 @@ class ExperimentOrchestrator:
             }
     
     def _calculate_avg_metrics(self, results_list: list) -> dict:
-        """Calculate average metrics across multiple job results.
+        """Calculate average metrics across multiple job results with multi-run support.
         
         Args:
-            results_list: List of result dictionaries
+            results_list: List of result dictionaries (may contain multi-run data)
             
         Returns:
             Dictionary with averaged metrics
@@ -639,19 +712,41 @@ class ExperimentOrchestrator:
         if not results_list:
             return {}
         
-        # Collect all metric values
+        # Collect all metric values with multi-run awareness
         metric_totals = {}
         metric_counts = {}
         
         for results in results_list:
             if isinstance(results, dict):
-                for metric_name, metric_value in results.items():
-                    if isinstance(metric_value, (int, float)):
-                        if metric_name not in metric_totals:
-                            metric_totals[metric_name] = 0
-                            metric_counts[metric_name] = 0
-                        metric_totals[metric_name] += metric_value
-                        metric_counts[metric_name] += 1
+                if results.get('type') == 'multi_run':
+                    # Handle multi-run results - use summary stats
+                    summary_stats = results.get('summary_stats', {})
+                    for metric_name, metric_stats in summary_stats.items():
+                        if hasattr(metric_stats, 'mean'):
+                            if metric_name not in metric_totals:
+                                metric_totals[metric_name] = 0
+                                metric_counts[metric_name] = 0
+                            metric_totals[metric_name] += metric_stats.mean
+                            metric_counts[metric_name] += 1
+                elif results.get('type') == 'single_run':
+                    # Handle single-run results
+                    data = results.get('data', {})
+                    for metric_name, metric_value in data.items():
+                        if isinstance(metric_value, (int, float)):
+                            if metric_name not in metric_totals:
+                                metric_totals[metric_name] = 0
+                                metric_counts[metric_name] = 0
+                            metric_totals[metric_name] += metric_value
+                            metric_counts[metric_name] += 1
+                else:
+                    # Legacy format - treat as single run
+                    for metric_name, metric_value in results.items():
+                        if isinstance(metric_value, (int, float)):
+                            if metric_name not in metric_totals:
+                                metric_totals[metric_name] = 0
+                                metric_counts[metric_name] = 0
+                            metric_totals[metric_name] += metric_value
+                            metric_counts[metric_name] += 1
         
         # Calculate averages
         avg_metrics = {}
