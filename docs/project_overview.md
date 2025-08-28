@@ -78,3 +78,10 @@ API Documentation using FastAPI's automatic OpenAPI/Swagger generation, with REA
 Deployment Guides for different scenarios (local, cloud, airgapped), configuration examples, and troubleshooting guides.
 
 This initial implementation will create a fully functional benchmarking system that can coordinate distributed model evaluation across heterogeneous hardware, with automatic adaptation to available capabilities and comprehensive result collection. The modular design ensures easy extension for additional models, tasks, and metrics in future iterations.
+
+# Development Instructions
+For development, you are in a git repository called "ruckus". You can execute git commands and should push commits after major changes or feature implementation with informative git commit messages. 
+
+While developing, if you are adding packages, maintain flexible versioning of the packages in the pyproject.toml files. 
+
+You can also run commands in the ruckus conda development environment by sourcing the ~/.bash_profile and running `conda activate ruckus`. You can install packages into this environment if they are missing.
