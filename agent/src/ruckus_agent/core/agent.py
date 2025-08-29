@@ -831,3 +831,7 @@ class Agent:
         self.crash_reason = None
         logger.info(f"Cleared {count} error reports, reset crashed state")
         return count
+    
+    async def execute_job(self, job: JobRequest):
+        """Execute a job directly (for testing purposes)."""
+        return await self._execute_job(job)

@@ -9,6 +9,7 @@ from contextlib import nullcontext
 
 from ruckus_agent.utils.gpu_benchmark import GPUBenchmark
 from ruckus_agent.core.detector import AgentDetector
+from ruckus_common.models import MultiRunJobResult
 
 
 @pytest.fixture
@@ -536,7 +537,9 @@ class TestGpuDetectionIntegration:
         
         detector = AgentDetector()
         
-        with patch.object(detector, '_detect_gpus_pynvml') as mock_pynvml_detect, \
+        with patch('pynvml.nvmlInit'), \
+             patch('pynvml.nvmlDeviceGetCount', return_value=1), \
+             patch.object(detector, '_detect_nvidia_gpu_pynvml') as mock_pynvml_detect, \
              patch.object(detector, '_detect_gpus_pytorch') as mock_pytorch_detect, \
              patch('ruckus_agent.utils.gpu_benchmark.GPUBenchmark') as mock_benchmark_class:
             
