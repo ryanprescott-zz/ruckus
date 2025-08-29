@@ -1,0 +1,111 @@
+/* Modern global styles for Ruckus UI */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-primary, linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%));
+  height: 100%;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+/* Modern button reset */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Modern input/textarea reset */
+input, textarea {
+  font-family: inherit;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font-weight: 400;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Modern focus styles */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+/* Scrollbar styling for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary, #f1f5f9);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary, #cbd5e1);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary, #94a3b8);
+}
+
+/* Dark theme scrollbar overrides */
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.5);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(229, 231, 235, 0.8);
+}
+
+/* Text selection styling */
+::selection {
+  background: #dbeafe;
+  color: #1f2937;
+}
+
+::-moz-selection {
+  background: #dbeafe;
+  color: #1f2937;
+}
+
+/* Dark theme text selection */
+[data-theme="dark"] ::selection {
+  background: #1e3a8a;
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] ::-moz-selection {
+  background: #1e3a8a;
+  color: #e5e7eb;
+}

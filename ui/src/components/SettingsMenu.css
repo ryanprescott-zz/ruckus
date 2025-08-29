@@ -1,0 +1,168 @@
+/* Settings Menu Styles */
+.settings-menu-container {
+  position: relative;
+  z-index: 1000;
+}
+
+.settings-button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(10px);
+}
+
+.settings-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.settings-button:active {
+  transform: translateY(0);
+}
+
+.settings-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: currentColor;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-button:hover .settings-icon {
+  transform: rotate(45deg);
+}
+
+.settings-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 200px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 12px;
+  box-shadow: 
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  animation: dropdownSlideIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dropdownSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.settings-section {
+  margin-bottom: 0;
+}
+
+.settings-section-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.theme-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #374151;
+  text-align: left;
+  width: 100%;
+}
+
+.theme-option:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #1e40af;
+}
+
+.theme-option.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1e40af;
+  font-weight: 500;
+}
+
+.theme-icon {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+}
+
+.theme-label {
+  flex: 1;
+  font-size: 0.875rem;
+}
+
+.check-icon {
+  width: 1rem;
+  height: 1rem;
+  fill: #059669;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-option.active .check-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Dark theme support for settings menu */
+[data-theme="dark"] .settings-dropdown {
+  background: rgba(31, 41, 55, 0.95);
+  border-color: rgba(75, 85, 99, 0.8);
+  box-shadow: 
+    0 10px 15px -3px rgba(0, 0, 0, 0.25),
+    0 4px 6px -2px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .settings-section-title {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .theme-option {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .theme-option:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .theme-option.active {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
