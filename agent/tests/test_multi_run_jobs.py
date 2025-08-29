@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 
 from ruckus_common.models import (
@@ -74,7 +74,7 @@ class TestSingleRunResult:
 
     def test_single_run_result_creation(self):
         """Test creating a SingleRunResult."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = SingleRunResult(
             run_id=0,
             is_cold_start=True,
@@ -100,7 +100,7 @@ class TestSingleRunResult:
 
     def test_single_run_result_warm_start(self):
         """Test SingleRunResult for warm start (no model loading)."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = SingleRunResult(
             run_id=1,
             is_cold_start=False,
@@ -120,7 +120,7 @@ class TestSingleRunResult:
 
     def test_single_run_result_validation_error(self):
         """Test validation error for cold start timing."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Should raise validation error: model_load_time_seconds set for warm start
         with pytest.raises(Exception):  # Pydantic validation error
@@ -199,7 +199,7 @@ class TestMultiRunJobResult:
 
     def test_multi_run_job_result_creation(self):
         """Test creating a complete MultiRunJobResult."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Create individual run results
         cold_start_run = SingleRunResult(
@@ -285,7 +285,7 @@ class TestMultiRunJobExecution:
     @pytest.mark.asyncio
     async def test_multi_run_job_execution_flow(self, agent, multi_run_job_request):
         """Test the complete multi-run job execution flow."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Create mock SingleRunResult objects that _execute_single_run should return
         mock_run_results = [
@@ -401,7 +401,7 @@ class TestMultiRunJobExecution:
     @pytest.mark.asyncio
     async def test_multi_run_job_with_failures(self, agent, multi_run_job_request):
         """Test multi-run job execution with some failed runs."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Create a mix of successful and failed SingleRunResult objects
         mock_run_results = [
@@ -509,7 +509,7 @@ class TestMultiRunJobExecution:
     @pytest.mark.asyncio  
     async def test_single_run_compatibility(self, agent, single_run_job_request):
         """Test that single-run jobs still work correctly."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Mock a successful single run result
         mock_single_run = SingleRunResult(
@@ -593,7 +593,7 @@ class TestMultiRunJobModels:
 
     def test_multi_run_result_validation(self):
         """Test MultiRunJobResult validation rules."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Valid multi-run result
         runs = [
@@ -632,7 +632,7 @@ class TestMultiRunJobModels:
 
     def test_multi_run_result_validation_error(self):
         """Test MultiRunJobResult validation error for mismatched counts."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Test with valid inputs first to ensure model works
         valid_result = MultiRunJobResult(

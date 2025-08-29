@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from ruckus_common.models import AgentType, AgentCapabilitiesBase
@@ -152,7 +152,7 @@ class AgentRegistration(BaseModel):
     max_batch_size: int = 1
 
     # Metadata
-    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentStatus(BaseModel):

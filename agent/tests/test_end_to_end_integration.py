@@ -1,10 +1,11 @@
 """End-to-end integration tests for RUCKUS agent and server orchestration."""
 
 import pytest
+import pytest_asyncio
 import asyncio
 import httpx
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List
 import json
 
@@ -26,8 +27,8 @@ def agent_settings():
         agent_type=AgentType.WHITE_BOX,
         max_concurrent_jobs=2,
         orchestrator_url="http://localhost:8080",
-        api_host="0.0.0.0",
-        api_port=8081
+        host="0.0.0.0",
+        port=8081
     )
 
 
@@ -38,7 +39,7 @@ def mock_orchestrator_client():
     return client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_agent(agent_settings):
     """Create a test agent instance."""
     agent = Agent(agent_settings, InMemoryStorage())
@@ -47,13 +48,44 @@ async def test_agent(agent_settings):
     with patch.object(agent, '_detect_capabilities') as mock_detect:
         mock_detect.return_value = None
         await agent.storage.store_system_info({
-            "system": {"hostname": "test-agent", "os": "Linux"},
-            "cpu": {"cores": 8, "model": "Test CPU"},
-            "gpus": [{"name": "Test GPU", "memory_mb": 8192}],
-            "frameworks": [{"name": "pytorch", "version": "2.0.0"}],
-            "models": ["test-model-7b", "test-model-13b"],
-            "hooks": ["nvidia-smi"],
-            "metrics": ["latency", "throughput", "memory"]
+            "system": {
+                "hostname": "test-agent",
+                "os": "Linux",
+                "os_version": "5.15.0",
+                "kernel": "5.15.0-generic",
+                "python_version": "3.12.0",
+                "total_memory_gb": 32.0,
+                "available_memory_gb": 24.0,
+                "disk_total_gb": 500.0,
+                "disk_available_gb": 400.0
+            },
+            "cpu": {
+                "model": "Test CPU",
+                "cores_physical": 8,
+                "cores_logical": 16,
+                "frequency_mhz": 3600.0,
+                "architecture": "x86_64"
+            },
+            "gpus": [{
+                "index": 0,
+                "name": "Test GPU",
+                "memory_total_mb": 8192,
+                "memory_available_mb": 7680
+            }],
+            "frameworks": [{"name": "pytorch", "version": "2.0.0", "available": True}],
+            "models": [{
+                "name": "test-model-7b",
+                "path": "/models/test-model-7b",
+                "model_type": "llama",
+                "format": "pytorch",
+                "size_gb": 13.5
+            }],
+            "hooks": [{"name": "nvidia-smi", "type": "gpu_monitor", "working": True}],
+            "metrics": [
+                {"name": "latency", "type": "performance", "available": True},
+                {"name": "throughput", "type": "performance", "available": True},
+                {"name": "memory", "type": "resource", "available": True}
+            ]
         })
         
         await agent.storage.store_capabilities({
@@ -81,12 +113,12 @@ class TestAgentRegistrationFlow:
             agent_id=test_agent.agent_id,
             agent_name=test_agent.agent_name,
             message="Registration successful",
-            server_time=datetime.utcnow()
+            server_time=datetime.now(timezone.utc)
         )
         
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = registration_response.dict()
+        mock_response.json.return_value = registration_response.model_dump()
         mock_orchestrator_client.post.return_value = mock_response
         
         # Replace agent's HTTP client
@@ -321,7 +353,7 @@ class TestSingleRunJobEndToEnd:
                         stage=stage,
                         progress=progress,
                         message=f"Executing {stage.value}",
-                        timestamp=datetime.utcnow()
+                        timestamp=datetime.now(timezone.utc)
                     )
                     
                     # Send progress update
@@ -335,8 +367,8 @@ class TestSingleRunJobEndToEnd:
                     job_id=job_request.job_id,
                     experiment_id=job_request.experiment_id,
                     status=JobStatus.COMPLETED,
-                    started_at=datetime.utcnow() - timedelta(seconds=5),
-                    completed_at=datetime.utcnow(),
+                    started_at=datetime.now(timezone.utc) - timedelta(seconds=5),
+                    completed_at=datetime.now(timezone.utc),
                     duration_seconds=5.0,
                     output="Test output",
                     metrics={"latency": 1.5, "throughput": 10.0}
@@ -647,14 +679,14 @@ class TestOrchestratorAgentIntegration:
                     SingleRunResult(
                         run_id=i,
                         is_cold_start=(i == 0),
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow() + timedelta(seconds=2),
+                        started_at=datetime.now(timezone.utc),
+                        completed_at=datetime.now(timezone.utc) + timedelta(seconds=2),
                         duration_seconds=2.0,
                         metrics={"latency": 1.5 + i*0.1, "throughput": 10.0 - i*0.2}
                     ) for i in range(3)
                 ],
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow() + timedelta(seconds=8),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc) + timedelta(seconds=8),
                 total_duration_seconds=8.0
             )
             
@@ -670,7 +702,7 @@ class TestOrchestratorAgentIntegration:
             test_agent.running_jobs[job_request.job_id] = {
                 "job_request": job_request,
                 "status": JobStatus.RUNNING,
-                "started_at": datetime.utcnow()
+                "started_at": datetime.now(timezone.utc)
             }
             
             # Execute the job
@@ -723,14 +755,14 @@ class TestOrchestratorAgentIntegration:
                         SingleRunResult(
                             run_id=j,
                             is_cold_start=(j == 0),
-                            started_at=datetime.utcnow(),
-                            completed_at=datetime.utcnow() + timedelta(seconds=1),
+                            started_at=datetime.now(timezone.utc),
+                            completed_at=datetime.now(timezone.utc) + timedelta(seconds=1),
                             duration_seconds=1.0,
                             metrics={"latency": 1.0}
                         ) for j in range(2)
                     ],
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow() + timedelta(seconds=3),
+                    started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc) + timedelta(seconds=3),
                     total_duration_seconds=3.0
                 )
             
@@ -774,7 +806,7 @@ class TestOrchestratorAgentIntegration:
         test_agent.running_jobs["status-test-job"] = {
             "job_request": job_request,
             "status": JobStatus.RUNNING,
-            "started_at": datetime.utcnow()
+            "started_at": datetime.now(timezone.utc)
         }
         
         # Add job to queue

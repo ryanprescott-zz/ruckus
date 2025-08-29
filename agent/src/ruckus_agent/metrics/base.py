@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class MetricCollector(ABC):
@@ -15,13 +15,13 @@ class MetricCollector(ABC):
 
     def start(self):
         """Start metric collection."""
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
         self.metrics = {}
 
     def stop(self):
         """Stop metric collection."""
         if self.start_time:
-            duration = (datetime.utcnow() - self.start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - self.start_time).total_seconds()
             self.metrics["duration_seconds"] = duration
 
     @abstractmethod

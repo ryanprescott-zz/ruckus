@@ -122,7 +122,10 @@ class TestAgentDetector:
         mock_subprocess.run.side_effect = FileNotFoundError()
         
         detector = AgentDetector()
-        result = await detector.detect_gpus()
+        
+        # Also mock PyTorch to not detect any GPUs
+        with patch.object(detector, '_detect_gpus_pytorch', return_value=[]):
+            result = await detector.detect_gpus()
         
         assert result == []
 

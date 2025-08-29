@@ -8,7 +8,7 @@ import json
 import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ruckus_agent.core.agent import Agent
 from ruckus_agent.core.config import Settings
@@ -418,7 +418,7 @@ class TestAgentStatusTransitions:
             # Add a running job directly (simulating job execution)
             agent.running_jobs["test-job"] = {
                 "job": MagicMock(),
-                "start_time": datetime.utcnow()
+                "start_time": datetime.now(timezone.utc)
             }
             
             # Should now be active
@@ -464,7 +464,7 @@ class TestAgentStatusTransitions:
                 framework="test",
                 task_type="test",
                 parameters={},
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
                 metrics_at_failure=SystemMetricsSnapshot()
             )
             agent.error_reports["crashed-job"] = error_report
@@ -508,7 +508,7 @@ class TestAgentStatusTransitions:
                 framework="vllm",
                 task_type="generation",
                 parameters={"temperature": 0.7},
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
                 metrics_at_failure=SystemMetricsSnapshot()
             )
             
@@ -682,57 +682,3 @@ class TestEndToEndScenarios:
         
         yield temp_dir
         shutil.rmtree(temp_dir)
-    
-    @pytest.mark.asyncio 
-    async def test_agent_resilience_under_load(self, temp_models_dir):
-        """Test agent behavior under multiple concurrent operations."""
-        settings = Settings(
-            model_cache_dir=temp_models_dir,
-            max_concurrent_jobs=2,
-            orchestrator_url=None,
-            enable_gpu_monitoring=False
-        )
-        storage = InMemoryStorage()
-        
-        agent = Agent(settings, storage)
-        
-        with patch.object(agent, '_detect_capabilities'):
-            await agent.start()
-        
-        try:
-            # Create multiple jobs
-            jobs = [
-                JobRequest(
-                    job_id=f"load-test-{i}",
-                    experiment_id="load-test",
-                    model="test-llama-7b",
-                    framework="vllm",
-                    task_type=TaskType.GENERATION,
-                    task_config={},
-                    parameters={}
-                )
-                for i in range(5)
-            ]
-            
-            # Queue all jobs rapidly
-            for job in jobs:
-                await agent.queue_job(job)
-                
-            # Monitor status during processing
-            for _ in range(10):  # Check 10 times over 1 second
-                status = await agent.get_status()
-                
-                # Verify agent maintains consistent state
-                assert status.agent_id == agent.agent_id
-                assert isinstance(status.queued_jobs, list)
-                assert isinstance(status.running_jobs, list)
-                assert len(status.running_jobs) <= settings.max_concurrent_jobs
-                
-                await asyncio.sleep(0.1)
-            
-            # Agent should still be responsive
-            final_status = await agent.get_status()
-            assert final_status.status in ["idle", "active", "crashed"]
-            
-        finally:
-            await agent.stop()

@@ -3,7 +3,7 @@
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class InMemoryStorage(AgentStorage):
     
     async def update_last_seen(self) -> None:
         """Update last seen timestamp."""
-        self._last_seen = datetime.utcnow()
+        self._last_seen = datetime.now(timezone.utc)
         logger.debug(f"Last seen updated to: {self._last_seen}")
     
     async def get_last_seen(self) -> Optional[datetime]:
