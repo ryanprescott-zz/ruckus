@@ -151,6 +151,10 @@
   font-weight: 700;
 }
 
+[data-theme="dark"] .tab-button.active {
+  border-bottom-color: #f59e0b;
+}
+
 .tab-content {
   flex: 1;
   background: var(--bg-secondary);

@@ -166,7 +166,7 @@
 }
 
 .agent-details-section {
-  background: var(--bg-tertiary);
+  background: #f1f3f4;
   backdrop-filter: blur(10px);
   border: 1px solid var(--border-secondary);
   border-radius: 12px;
@@ -176,6 +176,10 @@
   min-height: 200px;
   box-shadow: var(--shadow-secondary);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] .agent-details-section {
+  background: var(--bg-tertiary);
 }
 
 .agent-details-section:hover {
@@ -251,7 +255,7 @@
 .agent-details-section textarea:focus {
   outline: none;
   border-color: #3b82f6;
-  background: var(--bg-secondary);
+  background: rgba(59, 130, 246, 0.1);
   box-shadow: 
     0 0 0 4px rgba(59, 130, 246, 0.1),
     0 1px 3px 0 rgba(0, 0, 0, 0.1);
@@ -259,6 +263,7 @@
 
 [data-theme="dark"] .agent-details-section textarea:focus {
   border-color: #f59e0b;
+  background: rgba(59, 130, 246, 0.1);
   box-shadow: 
     0 0 0 4px rgba(245, 158, 11, 0.1),
     0 1px 3px 0 rgba(0, 0, 0, 0.1);
