@@ -86,6 +86,13 @@
   transform: translateY(-1px);
 }
 
+[data-theme="dark"] .agent-registration input:focus {
+  border-color: #f59e0b;
+  box-shadow: 
+    0 0 0 4px rgba(245, 158, 11, 0.1),
+    0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
 .agent-registration input::placeholder {
   color: var(--text-tertiary);
   font-weight: 400;
@@ -247,6 +254,13 @@
   background: var(--bg-secondary);
   box-shadow: 
     0 0 0 4px rgba(59, 130, 246, 0.1),
+    0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .agent-details-section textarea:focus {
+  border-color: #f59e0b;
+  box-shadow: 
+    0 0 0 4px rgba(245, 158, 11, 0.1),
     0 1px 3px 0 rgba(0, 0, 0, 0.1);
 }
 
@@ -511,18 +525,34 @@
 }
 
 .agents-table tbody tr.active {
-  border-left: 4px solid #22c55e;
+  border-left: 4px solid #3b82f6;
 }
 
 .agents-table tbody tr.idle {
-  border-left: 4px solid #f59e0b;
+  border-left: 4px solid #3b82f6;
 }
 
 .agents-table tbody tr.offline {
-  border-left: 4px solid #ef4444;
+  border-left: 4px solid #3b82f6;
 }
 
 .agents-table tbody tr.unavailable {
+  border-left: 4px solid #3b82f6;
+}
+
+[data-theme="dark"] .agents-table tbody tr.active {
+  border-left: 4px solid #22c55e;
+}
+
+[data-theme="dark"] .agents-table tbody tr.idle {
+  border-left: 4px solid #f59e0b;
+}
+
+[data-theme="dark"] .agents-table tbody tr.offline {
+  border-left: 4px solid #ef4444;
+}
+
+[data-theme="dark"] .agents-table tbody tr.unavailable {
   border-left: 4px solid #6b7280;
 }
 
