@@ -20,7 +20,7 @@ const AgentsTab: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<RegisteredAgentInfo | null>(null);
   
   // Table sorting
-  const { sortedData, sortConfig, handleSort } = useTableSort(agents, 'name');
+  const { sortedData, sortConfig, requestSort } = useTableSort(agents);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [registerUrl, setRegisterUrl] = useState('');
@@ -220,33 +220,6 @@ const AgentsTab: React.FC = () => {
     }
   };
 
-  // Render status badge
-  const renderStatusBadge = (status: AgentStatusEnum) => {
-    return (
-      <span className={`status-badge ${status.toLowerCase()}`}>
-        {status}
-      </span>
-    );
-  };
-
-  // Render unregister button
-  const renderUnregisterButton = (agentId: string) => {
-    return (
-      <button
-        className="unregister-button"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleUnregisterAgent(agentId);
-        }}
-        title="Unregister agent"
-      >
-        <svg className="unregister-icon" viewBox="0 0 20 20">
-          <circle cx="10" cy="10" r="9" fill="currentColor" />
-          <line x1="6" y1="10" x2="14" y2="10" stroke="white" strokeWidth="2" />
-        </svg>
-      </button>
-    );
-  };
 
   if (loading && agents.length === 0) {
     return (
@@ -307,7 +280,7 @@ const AgentsTab: React.FC = () => {
           <table className="agents-table">
             <thead>
               <tr>
-                <th className="sortable" onClick={() => handleSort('id')}>
+                <th className="sortable" onClick={() => requestSort('id')}>
                   <div className="th-content">
                     Id
                     {sortConfig?.key === 'id' && (
@@ -317,7 +290,7 @@ const AgentsTab: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort('name')}>
+                <th className="sortable" onClick={() => requestSort('name')}>
                   <div className="th-content">
                     Name
                     {sortConfig?.key === 'name' && (
@@ -327,7 +300,7 @@ const AgentsTab: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort('status')}>
+                <th className="sortable" onClick={() => requestSort('status')}>
                   <div className="th-content">
                     Status
                     {sortConfig?.key === 'status' && (
@@ -337,7 +310,7 @@ const AgentsTab: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort('jobs')}>
+                <th className="sortable" onClick={() => requestSort('jobs')}>
                   <div className="th-content">
                     Jobs
                     {sortConfig?.key === 'jobs' && (
@@ -347,7 +320,7 @@ const AgentsTab: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort('uptime')}>
+                <th className="sortable" onClick={() => requestSort('uptime')}>
                   <div className="th-content">
                     Uptime
                     {sortConfig?.key === 'uptime' && (
@@ -357,7 +330,7 @@ const AgentsTab: React.FC = () => {
                     )}
                   </div>
                 </th>
-                <th className="sortable" onClick={() => handleSort('lastStatusChange')}>
+                <th className="sortable" onClick={() => requestSort('lastStatusChange')}>
                   <div className="th-content">
                     Last Status Change
                     {sortConfig?.key === 'lastStatusChange' && (
@@ -389,22 +362,17 @@ const AgentsTab: React.FC = () => {
                   <td>{agent.lastStatusChange}</td>
                   <td>
                     <button
+                      className="unregister-button"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleUnregisterAgent(agent.id);
                       }}
                       title="Unregister agent"
-                      style={{
-                        background: 'red',
-                        border: '2px solid black',
-                        color: 'white',
-                        cursor: 'pointer',
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: 'bold'
-                      }}
                     >
-                      DELETE
+                      <svg className="unregister-icon" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="9" fill="currentColor" />
+                        <line x1="6" y1="10" x2="14" y2="10" stroke="white" strokeWidth="2" />
+                      </svg>
                     </button>
                   </td>
                 </tr>

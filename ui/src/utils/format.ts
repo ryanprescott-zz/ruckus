@@ -44,7 +44,7 @@ export function formatTimestamp(isoString: string): string {
  * Format agent details for display in text areas with simple key-value format
  */
 export function formatAgentDetails(
-  title: string, 
+  _title: string, 
   data: Record<string, any>
 ): string {
   if (!data || Object.keys(data).length === 0) {
