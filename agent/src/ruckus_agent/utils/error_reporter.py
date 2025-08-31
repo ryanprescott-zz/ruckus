@@ -6,7 +6,7 @@ import subprocess
 import traceback
 import psutil
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 from ..core.models import SystemMetricsSnapshot, JobErrorReport, JobFailureContext
@@ -139,7 +139,7 @@ class ErrorReporter:
         context = JobFailureContext(
             job_id=job_id,
             stage=stage,
-            start_time=datetime.utcnow()
+            start_time=datetime.now(timezone.utc)
         )
         
         # Capture initial metrics
@@ -155,7 +155,7 @@ class ErrorReporter:
         if job_id in self.failure_contexts:
             context = self.failure_contexts[job_id]
             context.stage = stage
-            context.stage_history.append(f"{stage} ({datetime.utcnow()})")
+            context.stage_history.append(f"{stage} ({datetime.now(timezone.utc)})")
             
             # Capture metrics at stage transition
             snapshot = await self.metrics_collector.capture_snapshot()
@@ -200,7 +200,7 @@ class ErrorReporter:
         available_vram = self._estimate_available_vram(failure_snapshot)
         
         # Calculate failure duration
-        failed_at = datetime.utcnow()
+        failed_at = datetime.now(timezone.utc)
         duration = (failed_at - started_at).total_seconds()
         
         # Create error report

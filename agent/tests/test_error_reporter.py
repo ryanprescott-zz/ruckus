@@ -2,7 +2,7 @@
 
 import pytest
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch, MagicMock
 from typing import List
 
@@ -191,7 +191,7 @@ class TestErrorReporter:
         
         # Create test error
         test_error = RuntimeError("CUDA out of memory")
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         # Generate report
         with patch.object(error_reporter, '_capture_nvidia_smi_full', return_value="nvidia-smi output"):
@@ -339,7 +339,7 @@ class TestErrorReporter:
         job_id = "untracked-job"
         experiment_id = "exp-test"
         error = RuntimeError("Test error")
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         report = await error_reporter.generate_error_report(
             job_id=job_id,

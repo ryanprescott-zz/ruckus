@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..core.models import ModelInfo
 
@@ -106,7 +106,7 @@ class ModelDiscovery:
                 
                 # Additional metadata
                 quantization=self._detect_quantization(file_analysis["model_files"], config_data),
-                discovered_at=datetime.utcnow()
+                discovered_at=datetime.now(timezone.utc)
             )
             
             return model_info

@@ -5,11 +5,11 @@ import httpx
 import logging
 import uuid
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ruckus_common.models import (
     JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
-    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult
+    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage
 )
 from .config import Settings
 from .models import AgentRegistration, JobErrorReport
@@ -38,7 +38,7 @@ class Agent:
         self.running_jobs: Dict[str, Any] = {}
         self.job_queue: asyncio.Queue = asyncio.Queue()
         self.queued_job_ids: List[str] = []  # Track queued job IDs for status reporting
-        self.startup_time = datetime.utcnow()
+        self.startup_time = datetime.now(timezone.utc)
         self.crashed = False
         self.crash_reason: Optional[str] = None
         
@@ -206,7 +206,7 @@ class Agent:
         """Execute a job with support for multiple runs and cold start tracking."""
         logger.info(f"Agent {self.agent_id} executing job {job.job_id} with {job.runs_per_job} runs")
         
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         error_report = None
         
         try:
@@ -224,7 +224,7 @@ class Agent:
             update = JobUpdate(
                 job_id=job.job_id,
                 status=JobStatus.RUNNING,
-                stage="initializing",
+                stage=JobStage.INITIALIZING,
             )
             await self._send_update(update)
             
@@ -241,13 +241,15 @@ class Agent:
             update = JobUpdate(
                 job_id=job.job_id,
                 status=JobStatus.COMPLETED,
-                stage="completed",
+                stage=JobStage.FINALIZING,
                 output=job_result,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
             await self._send_update(update)
             
             logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully")
+            
+            return job_result
             
         except Exception as e:
             logger.error(f"Agent {self.agent_id} job {job.job_id} execution failed: {e}")
@@ -331,8 +333,8 @@ class Agent:
                 failed_run = SingleRunResult(
                     run_id=run_id,
                     is_cold_start=is_cold_start,
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
+                    started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
                     duration_seconds=0.0,
                     error=str(e),
                     error_type=type(e).__name__
@@ -365,8 +367,8 @@ class Agent:
             summary_stats=summary_stats,
             cold_start_data=cold_start_data,
             started_at=job_start_time,
-            completed_at=datetime.utcnow(),
-            total_duration_seconds=(datetime.utcnow() - job_start_time).total_seconds(),
+            completed_at=datetime.now(timezone.utc),
+            total_duration_seconds=(datetime.now(timezone.utc) - job_start_time).total_seconds(),
             model_actual=job.model,
             framework_version="vllm-0.2.0",  # TODO: Get actual version
             hardware_info=await self._get_current_hardware_info(),
@@ -379,7 +381,7 @@ class Agent:
     async def _execute_single_run(self, job: JobRequest, run_id: int, is_cold_start: bool) -> SingleRunResult:
         """Execute a single run of a job with detailed metrics tracking."""
         
-        run_start = datetime.utcnow()
+        run_start = datetime.now(timezone.utc)
         model_load_time = None
         model_load_memory = None
         
@@ -391,11 +393,11 @@ class Agent:
             # Cold start: Load model and track loading metrics
             if is_cold_start:
                 await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_model_loading")
-                load_start = datetime.utcnow()
+                load_start = datetime.now(timezone.utc)
                 
                 # TODO: Implement actual model loading with VRAM tracking
                 await asyncio.sleep(0.5)  # Simulate model loading time
-                model_load_time = (datetime.utcnow() - load_start).total_seconds()
+                model_load_time = (datetime.now(timezone.utc) - load_start).total_seconds()
                 model_load_memory = 8192.0  # TODO: Get actual VRAM usage
                 
                 logger.info(f"Cold start model load completed in {model_load_time:.2f}s")
@@ -424,7 +426,7 @@ class Agent:
                 "gpu_utilization_percent": 85.0 + (run_id * 1.5)
             }
             
-            run_end = datetime.utcnow()
+            run_end = datetime.now(timezone.utc)
             duration = (run_end - run_start).total_seconds()
             
             # Create successful run result
@@ -440,7 +442,7 @@ class Agent:
             )
             
         except Exception as e:
-            run_end = datetime.utcnow()
+            run_end = datetime.now(timezone.utc)
             duration = (run_end - run_start).total_seconds()
             
             # Create failed run result
@@ -596,7 +598,7 @@ class Agent:
         """Clean up temporary files and in-memory caches."""
         try:
             # Clear error reports that are old
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
             old_reports = []
             
             for job_id, report in self.error_reports.items():
@@ -790,7 +792,7 @@ class Agent:
             status = AgentStatusEnum.IDLE
         
         # Calculate uptime
-        uptime_seconds = (datetime.utcnow() - self.startup_time).total_seconds()
+        uptime_seconds = (datetime.now(timezone.utc) - self.startup_time).total_seconds()
         
         return AgentStatus(
             agent_id=self.agent_id,
@@ -798,7 +800,7 @@ class Agent:
             running_jobs=list(self.running_jobs.keys()),
             queued_jobs=self.queued_job_ids.copy(),  # Return copy of the list
             uptime_seconds=uptime_seconds,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     async def queue_job(self, job: JobRequest):
@@ -829,3 +831,7 @@ class Agent:
         self.crash_reason = None
         logger.info(f"Cleared {count} error reports, reset crashed state")
         return count
+    
+    async def execute_job(self, job: JobRequest):
+        """Execute a job directly (for testing purposes)."""
+        return await self._execute_job(job)

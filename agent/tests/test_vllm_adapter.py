@@ -6,7 +6,7 @@ import shutil
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ruckus_agent.adapters.vllm_adapter import VLLMAdapter
 from ruckus_agent.core.models import ModelInfo
@@ -49,7 +49,7 @@ class TestVLLMAdapter:
             config_files=["config.json"],
             model_files=["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors"],
             tokenizer_files=["tokenizer.json", "tokenizer.model"],
-            discovered_at=datetime.utcnow()
+            discovered_at=datetime.now(timezone.utc)
         )
     
     @pytest.fixture

@@ -1,7 +1,7 @@
 """Tests for storage backends."""
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from ruckus_agent.core.storage import InMemoryStorage
 
 
@@ -55,9 +55,9 @@ class TestInMemoryStorage:
         assert await storage.get_last_seen() is None
         
         # Update last seen
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc)
         await storage.update_last_seen()
-        after = datetime.utcnow()
+        after = datetime.now(timezone.utc)
         
         last_seen = await storage.get_last_seen()
         assert last_seen is not None

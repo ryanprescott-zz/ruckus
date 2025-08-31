@@ -5,7 +5,7 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from ruckus_agent.utils.model_discovery import ModelDiscovery
@@ -299,9 +299,9 @@ class TestModelDiscovery:
         """Test that timestamp fields are populated."""
         discovery = ModelDiscovery(str(temp_models_dir))
         
-        before_discovery = datetime.utcnow()
+        before_discovery = datetime.now(timezone.utc)
         models = await discovery.discover_all_models()
-        after_discovery = datetime.utcnow()
+        after_discovery = datetime.now(timezone.utc)
         
         assert len(models) == 1
         model = models[0]
