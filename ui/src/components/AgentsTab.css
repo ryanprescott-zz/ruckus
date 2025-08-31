@@ -213,6 +213,10 @@
   border-radius: 1px;
 }
 
+[data-theme="dark"] .agent-details-section h3::after {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+}
+
 .agent-details-section textarea {
   flex: 1;
   width: 100%;
