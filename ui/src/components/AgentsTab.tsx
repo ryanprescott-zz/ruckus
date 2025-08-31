@@ -7,7 +7,6 @@ import type {
 import { AgentStatusEnum } from '../types/api';
 import { apiClient } from '../services/api';
 import { formatUptime, formatTimestamp, formatAgentDetails } from '../utils/format';
-import { useTableSort } from '../hooks/useTableSort';
 import './AgentsTab.css';
 
 // Configuration
@@ -19,8 +18,6 @@ const AgentsTab: React.FC = () => {
   const [agents, setAgents] = useState<AgentTableRow[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<RegisteredAgentInfo | null>(null);
   
-  // Table sorting
-  const { sortedData, sortConfig, requestSort } = useTableSort(agents);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [registerUrl, setRegisterUrl] = useState('');
@@ -124,6 +121,26 @@ const AgentsTab: React.FC = () => {
     }
   }, [agents.length, selectedAgent]);
 
+  // Handle agent row selection
+  const handleAgentRowClick = (agent: RegisteredAgentInfo) => {
+    setSelectedAgent(agent);
+  };
+
+  // Handle agent unregistration
+  const handleUnregisterAgent = async (agentId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent row selection
+    
+    try {
+      await apiClient.unregisterAgent({ agent_id: agentId });
+      // Data will be updated on next poll
+      showToast('Agent unregistered successfully', 'success');
+    } catch (err) {
+      console.error('Failed to unregister agent:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`Failed to unregister agent: ${errorMessage}`, 'error');
+    }
+  };
+
   // Handle agent registration
   const handleRegisterAgent = async () => {
     if (!registerUrl.trim()) return;
@@ -165,53 +182,6 @@ const AgentsTab: React.FC = () => {
     setTimeout(() => setToast(null), 3000); // Hide after 3 seconds
   };
 
-  // Handle agent unregistration
-  const handleUnregisterAgent = async (agentId: string) => {
-    try {
-      await apiClient.unregisterAgent({ agent_id: agentId });
-      
-      // Show success toast
-      showToast(`Agent with ID ${agentId} unregistered`, 'success');
-      
-      // Clear selection if this agent was selected
-      if (selectedAgent?.agent_id === agentId) {
-        setSelectedAgent(null);
-      }
-      
-      // If this was the last agent, clear selection when agents list updates
-      if (agents.length === 1) {
-        setSelectedAgent(null);
-      }
-      
-      // Data will be updated on next poll
-      setError(null);
-      
-      // Check if connection was restored after being disconnected
-      if (wasDisconnected) {
-        setWasDisconnected(false);
-        showToast('Server connection restored', 'success');
-      }
-    } catch (err) {
-      console.error('Failed to unregister agent:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      
-      // Check if it's a connection error
-      if (errorMessage.includes('CONNECTION_ERROR')) {
-        setWasDisconnected(true);
-        showToast('Cannot connect to server. Please check if the server is running.', 'error');
-        setError('Cannot connect to server');
-      } else {
-        const fullErrorMessage = `Failed to unregister agent: ${errorMessage}`;
-        setError(fullErrorMessage);
-        showToast(fullErrorMessage, 'error');
-      }
-    }
-  };
-
-  // Handle agent selection
-  const handleSelectAgent = (agent: RegisteredAgentInfo) => {
-    setSelectedAgent(agent);
-  };
 
   // Handle key press in register input
   const handleRegisterKeyPress = (e: React.KeyboardEvent) => {
@@ -274,117 +244,67 @@ const AgentsTab: React.FC = () => {
       {/* Error Display */}
       {error && <div className="error-message">{error}</div>}
 
-      {/* Simple Agents Table */}
-      {sortedData.length > 0 ? (
-        <div className="agents-table-wrapper">
-          <table className="agents-table">
-            <thead>
+      {/* Agents Table */}
+      <div className="agents-table-container">
+        <table className="agents-table">
+          <thead>
+            <tr>
+              <th>Id</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Jobs</th>
+              <th>Uptime</th>
+              <th>Last Status Change</th>
+              <th>Unregister</th>
+            </tr>
+          </thead>
+          <tbody>
+            {agents.length === 0 ? (
               <tr>
-                <th className="sortable" onClick={() => requestSort('id')}>
-                  <div className="th-content">
-                    Id
-                    {sortConfig?.key === 'id' && (
-                      <span className="sort-indicator">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
+                <td colSpan={7} className="empty-cell">
+                  <div className="empty-content">
+                    No agents registered
                   </div>
-                </th>
-                <th className="sortable" onClick={() => requestSort('name')}>
-                  <div className="th-content">
-                    Name
-                    {sortConfig?.key === 'name' && (
-                      <span className="sort-indicator">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th className="sortable" onClick={() => requestSort('status')}>
-                  <div className="th-content">
-                    Status
-                    {sortConfig?.key === 'status' && (
-                      <span className="sort-indicator">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th className="sortable" onClick={() => requestSort('jobs')}>
-                  <div className="th-content">
-                    Jobs
-                    {sortConfig?.key === 'jobs' && (
-                      <span className="sort-indicator">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th className="sortable" onClick={() => requestSort('uptime')}>
-                  <div className="th-content">
-                    Uptime
-                    {sortConfig?.key === 'uptime' && (
-                      <span className="sort-indicator">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th className="sortable" onClick={() => requestSort('lastStatusChange')}>
-                  <div className="th-content">
-                    Last Status Change
-                    {sortConfig?.key === 'lastStatusChange' && (
-                      <span className="sort-indicator">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </div>
-                </th>
-                <th>Unregister</th>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {sortedData.map((agent) => (
-                <tr 
+            ) : (
+              agents.map((agent) => (
+                <tr
                   key={agent.id}
-                  onClick={() => handleSelectAgent(agent.agent)}
-                  className={selectedAgent?.agent_id === agent.id ? 'selected' : ''}
+                  className={`agent-row ${selectedAgent?.agent_id === agent.id ? 'selected' : ''} ${agent.status.toLowerCase()}`}
+                  onClick={() => handleAgentRowClick(agent.agent)}
                 >
-                  <td>{agent.id}</td>
-                  <td>{agent.name}</td>
-                  <td>
-                    <span className={`status-badge ${agent.status.toLowerCase()}`}>
+                  <td className="agent-id">{agent.id}</td>
+                  <td className="agent-name">{agent.name}</td>
+                  <td className="agent-status">
+                    <span className={`status-badge status-${agent.status.toLowerCase()}`}>
                       {agent.status}
                     </span>
                   </td>
-                  <td>{agent.jobs || '—'}</td>
-                  <td>{agent.uptime}</td>
-                  <td>{agent.lastStatusChange}</td>
-                  <td>
+                  <td className="agent-jobs">
+                    {agent.jobs ? (
+                      <span className="job-link">{agent.jobs}</span>
+                    ) : (
+                      <span className="no-jobs">—</span>
+                    )}
+                  </td>
+                  <td className="agent-uptime">{agent.uptime}</td>
+                  <td className="agent-last-change">{agent.lastStatusChange}</td>
+                  <td className="agent-unregister">
                     <button
                       className="unregister-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleUnregisterAgent(agent.id);
-                      }}
+                      onClick={(e) => handleUnregisterAgent(agent.id, e)}
                       title="Unregister agent"
                     >
-                      <svg className="unregister-icon" viewBox="0 0 20 20">
-                        <circle cx="10" cy="10" r="9" fill="currentColor" />
-                        <line x1="6" y1="10" x2="14" y2="10" stroke="white" strokeWidth="2" />
-                      </svg>
+                      <span className="unregister-icon">⊖</span>
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="empty-state">
-          No agents registered. Use the form above to register an agent.
-        </div>
-      )}
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {/* Agent Details Panel - 2x2 Grid - Only show when agent is selected */}
       {selectedAgent && (
@@ -430,14 +350,6 @@ const AgentsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Selection prompt when no agent is selected */}
-      {!selectedAgent && sortedData.length > 0 && (
-        <div className="selection-prompt">
-          <div className="selection-prompt-content">
-            📌 Select an agent from the table above to view its details
-          </div>
-        </div>
-      )}
     </div>
   );
 };
