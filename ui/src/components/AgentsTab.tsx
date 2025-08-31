@@ -310,10 +310,10 @@ const AgentsTab: React.FC = () => {
       {selectedAgent && (
         <div className="agent-details-grid">
           <div className="agent-details-section">
-            <h3>Overview</h3>
+            <h3>Agent</h3>
             <textarea
               readOnly
-              value={formatAgentDetails('Overview', {
+              value={formatAgentDetails('Agent', {
                 agent_id: selectedAgent.agent_id,
                 agent_name: selectedAgent.agent_name,
                 agent_type: selectedAgent.agent_type,
