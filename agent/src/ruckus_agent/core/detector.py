@@ -58,6 +58,9 @@ class AgentDetector:
                 metrics=metrics
             )
             
+            # Compute summary fields
+            result.compute_summary_fields()
+            
             logger.info("AgentDetector capability detection completed successfully")
             return result
         except Exception as e:

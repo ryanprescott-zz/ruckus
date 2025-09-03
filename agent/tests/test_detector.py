@@ -147,11 +147,13 @@ class TestAgentDetector:
         
         assert len(result) == 1
         gpu = result[0]
-        assert gpu["index"] == 0
-        assert gpu["name"] == "Tesla V100"
-        assert gpu["uuid"] == "GPU-12345"
-        assert gpu["memory_total_mb"] == 32510
-        assert gpu["memory_available_mb"] == 30000
+        # Now result is a list of Pydantic models
+        assert isinstance(gpu, GPUDetectionResult)
+        assert gpu.index == 0
+        assert gpu.name == "Tesla V100"
+        assert gpu.uuid == "GPU-12345"
+        assert gpu.memory_total_mb == 32510
+        assert gpu.memory_available_mb == 30000
 
     @pytest.mark.asyncio
     @patch('ruckus_agent.core.detector.subprocess')
@@ -179,14 +181,14 @@ class TestAgentDetector:
         }):
             result = await detector.detect_frameworks()
             
-            # Should detect transformers
-            transformers_found = any(fw["name"] == "transformers" for fw in result)
+            # Should detect transformers - now result is a list of Pydantic models
+            transformers_found = any(fw.name == FrameworkName.TRANSFORMERS for fw in result)
             assert transformers_found
             
             if transformers_found:
-                transformers_fw = next(fw for fw in result if fw["name"] == "transformers")
-                assert transformers_fw["version"] == "4.20.0"
-                assert transformers_fw["available"] is True
+                transformers_fw = next(fw for fw in result if fw.name == FrameworkName.TRANSFORMERS)
+                assert transformers_fw.version == "4.20.0"
+                assert transformers_fw.available is True
 
     @pytest.mark.asyncio
     @patch('ruckus_agent.core.detector.subprocess')
@@ -202,11 +204,13 @@ class TestAgentDetector:
         result = await detector.detect_hooks()
         
         assert len(result) >= 1
-        nvidia_hook = next((h for h in result if h["name"] == "nvidia-smi"), None)
+        # Now result is a list of Pydantic models
+        nvidia_hook = next((h for h in result if h.name == "nvidia-smi"), None)
         assert nvidia_hook is not None
-        assert nvidia_hook["type"] == "gpu_monitor"
-        assert nvidia_hook["executable_path"] == "/usr/bin/nvidia-smi"
-        assert nvidia_hook["working"] is True
+        assert isinstance(nvidia_hook, HookDetectionResult)
+        assert nvidia_hook.type == HookType.GPU_MONITOR
+        assert nvidia_hook.executable_path == "/usr/bin/nvidia-smi"
+        assert nvidia_hook.working is True
 
     @pytest.mark.asyncio
     async def test_detect_metrics_basic(self):
@@ -216,28 +220,39 @@ class TestAgentDetector:
         with patch.object(detector, 'detect_gpus', return_value=[]):
             result = await detector.detect_metrics()
             
-            # Should always have basic performance metrics
-            metric_names = [m["name"] for m in result]
+            # Should always have basic performance metrics - now result is a list of Pydantic models
+            metric_names = [m.name for m in result]
             assert "latency" in metric_names
             assert "throughput" in metric_names
             
-            latency_metric = next(m for m in result if m["name"] == "latency")
-            assert latency_metric["type"] == "performance"
-            assert latency_metric["available"] is True
+            latency_metric = next(m for m in result if m.name == "latency")
+            assert isinstance(latency_metric, MetricDetectionResult)
+            assert latency_metric.type == MetricType.PERFORMANCE
+            assert latency_metric.available is True
 
     @pytest.mark.asyncio
     async def test_detect_metrics_with_gpu(self):
         """Test metrics detection when GPU is available."""
         detector = AgentDetector()
         
-        mock_gpu = {"name": "Tesla", "memory_mb": 8000}
+        # Create a mock GPU using the Pydantic model
+        mock_gpu = GPUDetectionResult(
+            index=0,
+            name="Tesla V100",
+            vendor=GPUVendor.NVIDIA,
+            memory_total_mb=8000,
+            memory_available_mb=7000,
+            detection_method=DetectionMethod.PYNVML
+        )
         with patch.object(detector, 'detect_gpus', return_value=[mock_gpu]):
             result = await detector.detect_metrics()
             
-            metric_names = [m["name"] for m in result]
+            # Now result is a list of Pydantic models
+            metric_names = [m.name for m in result]
             assert "gpu_utilization" in metric_names
             assert "gpu_memory" in metric_names
             
-            gpu_metric = next(m for m in result if m["name"] == "gpu_utilization")
-            assert gpu_metric["type"] == "resource"
-            assert "nvidia-smi" in gpu_metric["requires"]
+            gpu_metric = next(m for m in result if m.name == "gpu_utilization")
+            assert isinstance(gpu_metric, MetricDetectionResult)
+            assert gpu_metric.type == MetricType.RESOURCE
+            assert "nvidia-smi" in gpu_metric.requires

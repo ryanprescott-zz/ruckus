@@ -9,6 +9,7 @@ from contextlib import nullcontext
 
 from ruckus_agent.utils.gpu_benchmark import GPUBenchmark
 from ruckus_agent.core.detector import AgentDetector
+from ruckus_common.models import AgentCapabilityDetectionResult
 from ruckus_common.models import MultiRunJobResult
 
 
@@ -458,9 +459,10 @@ class TestGpuDetectionIntegration:
             gpu_info = await detector.detect_gpus()
             
             assert len(gpu_info) > 0
-            assert gpu_info[0]["name"] == "NVIDIA GeForce RTX 4090"
-            assert gpu_info[0]["memory_total_mb"] == 24564
-            assert gpu_info[0]["memory_available_mb"] == 23434
+            # Now gpu_info is a list of Pydantic models
+            assert gpu_info[0].name == "NVIDIA GeForce RTX 4090"
+            assert gpu_info[0].memory_total_mb == 24564
+            assert gpu_info[0].memory_available_mb == 23434
 
     @pytest.mark.asyncio
     async def test_detector_gpu_integration_with_pynvml(self):
@@ -492,11 +494,12 @@ class TestGpuDetectionIntegration:
             gpu_info = await detector._detect_nvidia_gpu_pynvml(0)
             
             assert gpu_info is not None
-            assert gpu_info["name"] == b"NVIDIA GeForce RTX 4090"
-            assert gpu_info["compute_capability"] == "8.9"
-            assert gpu_info["memory_total_mb"] == 24576  # ~24GB
-            assert gpu_info["temperature_celsius"] == 45
-            assert gpu_info["power_usage_watts"] == 25.0
+            # Now gpu_info is a Pydantic model
+            assert gpu_info.name == "NVIDIA GeForce RTX 4090"
+            assert gpu_info.compute_capability == "8.9"
+            assert gpu_info.memory_total_mb == 24576  # ~24GB
+            assert gpu_info.temperature_celsius == 45
+            assert gpu_info.power_usage_watts == 25.0
 
     @pytest.mark.asyncio
     @patch('torch.cuda.is_available')
@@ -525,9 +528,10 @@ class TestGpuDetectionIntegration:
             gpu_info = await detector._detect_gpus_pytorch()
             
             assert len(gpu_info) > 0
-            assert gpu_info[0]["name"] == "NVIDIA GeForce RTX 4090"
-            assert gpu_info[0]["compute_capability"] == "8.9"
-            assert gpu_info[0]["memory_total_mb"] == 24576
+            # Now gpu_info is a list of Pydantic models
+            assert gpu_info[0].name == "NVIDIA GeForce RTX 4090"
+            assert gpu_info[0].compute_capability == "8.9"
+            assert gpu_info[0].memory_total_mb == 24576
 
     @pytest.mark.asyncio
     @patch('torch.cuda.is_available')
@@ -543,19 +547,24 @@ class TestGpuDetectionIntegration:
              patch.object(detector, '_detect_gpus_pytorch') as mock_pytorch_detect, \
              patch('ruckus_agent.utils.gpu_benchmark.GPUBenchmark') as mock_benchmark_class:
             
-            # Mock GPU detection results
-            mock_pynvml_detect.return_value = {
-                "name": "NVIDIA GeForce RTX 4090",
-                "compute_capability": "8.9",
-                "tensor_cores": ["4th_gen"],
-                "memory_total_mb": 24576,
-                "memory_available_mb": 22760,
-                "memory_used_mb": 1316,
-                "temperature_celsius": 45,
-                "power_usage_watts": 25.0,
-                "current_utilization_percent": 15,
-                "memory_utilization_percent": 4
-            }
+            # Mock GPU detection results - now return Pydantic model
+            from ruckus_common.models import GPUDetectionResult, GPUVendor, DetectionMethod, TensorCoreGeneration, PrecisionType
+            mock_pynvml_detect.return_value = GPUDetectionResult(
+                index=0,
+                name="NVIDIA GeForce RTX 4090",
+                vendor=GPUVendor.NVIDIA,
+                memory_total_mb=24576,
+                memory_available_mb=22760,
+                memory_used_mb=1316,
+                compute_capability="8.9",
+                tensor_cores=[TensorCoreGeneration.FOURTH_GEN],
+                supported_precisions=[PrecisionType.FP32, PrecisionType.FP16],
+                temperature_celsius=45,
+                power_usage_watts=25.0,
+                current_utilization_percent=15,
+                memory_utilization_percent=4,
+                detection_method=DetectionMethod.PYNVML
+            )
             
             # Mock PyTorch fallback (shouldn't be called if pynvml succeeds)
             mock_pytorch_detect.return_value = []
@@ -586,11 +595,12 @@ class TestGpuDetectionIntegration:
             # Run detection
             detected_info = await detector.detect_all()
             
-            assert "gpus" in detected_info
-            assert len(detected_info["gpus"]) > 0
+            # Now detected_info is an AgentCapabilityDetectionResult Pydantic model
+            assert isinstance(detected_info, AgentCapabilityDetectionResult)
+            assert len(detected_info.gpus) > 0
             
-            gpu = detected_info["gpus"][0]
-            assert gpu["name"] == "NVIDIA GeForce RTX 4090"
+            gpu = detected_info.gpus[0]
+            assert gpu.name == "NVIDIA GeForce RTX 4090"
 
 
 class TestGPUBenchmarkMocking:

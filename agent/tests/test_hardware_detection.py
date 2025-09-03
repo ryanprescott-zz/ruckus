@@ -301,23 +301,23 @@ class TestHardwareDetection:
         """
         frameworks = await detector.detect_frameworks()
         
-        framework_names = [f["name"] for f in frameworks]
+        framework_names = [f.name.value for f in frameworks]
         
         print(f"✅ Framework Detection PASSED: {len(frameworks)} framework(s) detected")
         
         # Check specific frameworks
         for framework in frameworks:
-            name = framework["name"]
-            version = framework["version"]
-            available = framework["available"]
+            name = framework.name.value
+            version = framework.version
+            available = framework.available
             
             print(f"   {name}: v{version} ({'available' if available else 'unavailable'})")
             
             # Additional capability checks
             if name == "pytorch" and available:
-                capabilities = framework.get("capabilities", {})
-                cuda_available = capabilities.get("cuda", False)
-                mps_available = capabilities.get("mps", False)
+                capabilities = framework.capabilities
+                cuda_available = capabilities.cuda if capabilities else False
+                mps_available = capabilities.mps if capabilities else False
                 print(f"     - CUDA: {'✅' if cuda_available else '❌'}")
                 print(f"     - MPS (Apple): {'✅' if mps_available else '❌'}")
             
@@ -420,12 +420,12 @@ class TestEnvironmentValidation:
         
         print(f"   🖥️  Hardware: {len(gpus)} GPU(s)")
         if gpus:
-            total_vram = sum(gpu.get("memory_total_mb", 0) for gpu in gpus) / 1024
+            total_vram = sum(gpu.memory_total_mb for gpu in gpus) / 1024
             print(f"     Total VRAM: {total_vram:.1f} GB")
         
         # 3. Check frameworks
         frameworks = await detector.detect_frameworks()
-        framework_names = [f["name"] for f in frameworks if f["available"]]
+        framework_names = [f.name.value for f in frameworks if f.available]
         print(f"   🧠 Frameworks: {', '.join(framework_names) if framework_names else 'None'}")
         
         # 4. Overall readiness assessment

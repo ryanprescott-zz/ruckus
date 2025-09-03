@@ -1,7 +1,7 @@
 """Wire protocol for RUCKUS communication."""
 
 from enum import Enum
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 import uuid
@@ -53,7 +53,8 @@ class Response(Message):
     error: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
 
-    @validator("correlation_id")
+    @field_validator("correlation_id")
+    @classmethod
     def correlation_required(cls, v):
         if not v:
             raise ValueError("correlation_id is required for responses")
