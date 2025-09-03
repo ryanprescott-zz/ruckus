@@ -62,6 +62,105 @@ class AgentStatusEnum(str, Enum):
     UNAVAILABLE = "unavailable"  # Agent cannot be contacted
 
 
+# System Detection Enums
+class OSType(str, Enum):
+    """Operating system types."""
+    LINUX = "Linux"
+    WINDOWS = "Windows"
+    DARWIN = "Darwin"  # macOS
+    UNKNOWN = "Unknown"
+
+
+class CPUArchitecture(str, Enum):
+    """CPU architecture types."""
+    X86_64 = "x86_64"
+    AMD64 = "amd64"
+    ARM64 = "arm64"
+    AARCH64 = "aarch64"
+    ARM = "arm"
+    I386 = "i386"
+    UNKNOWN = "unknown"
+
+
+# GPU Detection Enums
+class GPUVendor(str, Enum):
+    """GPU vendor types."""
+    NVIDIA = "nvidia"
+    AMD = "amd"
+    INTEL = "intel"
+    APPLE = "apple"
+    UNKNOWN = "unknown"
+
+
+class TensorCoreGeneration(str, Enum):
+    """NVIDIA Tensor Core generations."""
+    FIRST_GEN = "1st_gen"      # Volta (V100, Titan V)
+    SECOND_GEN = "2nd_gen"     # Turing (RTX 20 series)
+    THIRD_GEN = "3rd_gen"      # Ampere (RTX 30 series, A100)
+    FOURTH_GEN = "4th_gen"     # Ada Lovelace (RTX 40 series), Hopper (H100)
+    NONE = "none"              # No tensor cores
+
+
+class PrecisionType(str, Enum):
+    """Supported precision types for GPU operations."""
+    FP64 = "fp64"    # Double precision
+    FP32 = "fp32"    # Single precision
+    TF32 = "tf32"    # TensorFloat-32 (Ampere+)
+    FP16 = "fp16"    # Half precision
+    BF16 = "bf16"    # Brain Float 16
+    INT8 = "int8"    # 8-bit integer
+    FP8 = "fp8"      # 8-bit float (Hopper+)
+
+
+class DetectionMethod(str, Enum):
+    """GPU detection methods."""
+    PYNVML = "pynvml"              # Primary NVIDIA method
+    NVIDIA_SMI = "nvidia_smi"      # NVIDIA fallback
+    PYTORCH_CUDA = "pytorch_cuda"  # PyTorch CUDA
+    PYTORCH_MPS = "pytorch_mps"    # Apple Silicon
+    PYTORCH_ROCM = "pytorch_rocm"  # AMD ROCm
+    UNKNOWN = "unknown"
+
+
+# Framework Enums
+class FrameworkName(str, Enum):
+    """ML framework names."""
+    PYTORCH = "pytorch"
+    TRANSFORMERS = "transformers"
+    VLLM = "vllm"
+    TENSORRT = "tensorrt"
+    ONNX = "onnx"
+    TRITON = "triton"
+    UNKNOWN = "unknown"
+
+
+# Hook/Tool Enums
+class HookType(str, Enum):
+    """System monitoring hook types."""
+    GPU_MONITOR = "gpu_monitor"      # nvidia-smi, rocm-smi
+    CPU_MONITOR = "cpu_monitor"      # htop, top
+    MEMORY_MONITOR = "memory_monitor"  # free, vmstat
+    DISK_MONITOR = "disk_monitor"    # iotop, iostat
+    PROCESS_MONITOR = "process_monitor"  # ps, pidstat
+    NETWORK_MONITOR = "network_monitor"  # netstat, iftop
+    PROFILER = "profiler"           # nsight, perf
+    UNKNOWN = "unknown"
+
+
+# Metric Collection Enums
+class MetricCollectionMethod(str, Enum):
+    """Methods for collecting metrics."""
+    TIMER = "timer"                    # Built-in timing
+    CALCULATION = "calculation"        # Computed metrics
+    NVIDIA_SMI = "nvidia_smi"         # NVIDIA GPU metrics
+    PYNVML = "pynvml"                 # NVIDIA ML library
+    PSUTIL = "psutil"                 # System metrics
+    PYTORCH = "pytorch"               # PyTorch built-in metrics
+    CUSTOM = "custom"                 # Custom collection logic
+    EXTERNAL_API = "external_api"     # External service API
+    UNKNOWN = "unknown"
+
+
 # Base Models
 class TimestampedModel(BaseModel):
     """Base model with timestamp fields."""
@@ -587,3 +686,132 @@ class HealthStatus(BaseModel):
     total_completed_jobs: int = 0
     last_job_completed: Optional[datetime] = None
     issues: List[str] = Field(default_factory=list)
+
+
+# Agent Capability Detection Models
+class SystemDetectionResult(BaseModel):
+    """System information detection result."""
+    hostname: str
+    os: OSType
+    os_version: str
+    kernel: str
+    python_version: str
+    total_memory_gb: float = Field(ge=0)
+    available_memory_gb: float = Field(ge=0)
+    disk_total_gb: float = Field(ge=0)
+    disk_available_gb: float = Field(ge=0)
+
+
+class CPUDetectionResult(BaseModel):
+    """CPU information detection result."""
+    model: str
+    cores_physical: int = Field(ge=0)
+    cores_logical: int = Field(ge=0)
+    frequency_mhz: float = Field(ge=0)
+    architecture: CPUArchitecture
+
+
+class GPUDetectionResult(BaseModel):
+    """Comprehensive GPU detection result."""
+    index: int = Field(ge=0)
+    name: str
+    uuid: Optional[str] = None
+    vendor: GPUVendor = GPUVendor.UNKNOWN
+    memory_total_mb: int = Field(ge=0)
+    memory_available_mb: int = Field(ge=0)
+    memory_used_mb: Optional[int] = Field(default=None, ge=0)
+    
+    # CUDA/Compute capabilities
+    compute_capability: Optional[str] = None
+    tensor_cores: List[TensorCoreGeneration] = Field(default_factory=list)
+    supported_precisions: List[PrecisionType] = Field(default_factory=list)
+    
+    # Live metrics (when available)
+    current_utilization_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    memory_utilization_percent: Optional[float] = Field(default=None, ge=0, le=100) 
+    temperature_celsius: Optional[float] = Field(default=None, ge=0)
+    power_usage_watts: Optional[float] = Field(default=None, ge=0)
+    
+    # Detection metadata
+    driver_version: Optional[str] = None
+    cuda_version: Optional[str] = None
+    multiprocessor_count: Optional[int] = Field(default=None, ge=0)
+    detection_method: DetectionMethod = DetectionMethod.UNKNOWN
+
+
+class FrameworkCapabilities(BaseModel):
+    """Framework-specific capability information."""
+    text_generation: bool = False
+    tokenization: bool = False
+    streaming: bool = False
+    continuous_batching: bool = False
+    cuda: bool = False
+    mps: bool = False  # Apple Silicon
+
+
+class FrameworkDetectionResult(BaseModel):
+    """ML framework detection result."""
+    name: FrameworkName
+    version: str
+    available: bool
+    capabilities: FrameworkCapabilities = Field(default_factory=FrameworkCapabilities)
+
+
+class HookDetectionResult(BaseModel):
+    """System monitoring hook detection result."""
+    name: str
+    type: HookType
+    executable_path: str
+    version: Optional[str] = None
+    working: bool
+
+
+class MetricDetectionResult(BaseModel):
+    """Available metric detection result."""
+    name: str
+    type: MetricType
+    available: bool
+    collection_method: MetricCollectionMethod
+    requires: List[str] = Field(default_factory=list, description="Required tools/capabilities")
+    unit: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AgentCapabilityDetectionResult(BaseModel):
+    """Complete agent capability detection result container."""
+    agent_id: str
+    detection_timestamp: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Core system information
+    system: SystemDetectionResult
+    cpu: CPUDetectionResult
+    gpus: List[GPUDetectionResult] = Field(default_factory=list)
+    
+    # Software capabilities
+    frameworks: List[FrameworkDetectionResult] = Field(default_factory=list)
+    models: List[Dict[str, Any]] = Field(default_factory=list, description="Available models (legacy dict format for now)")
+    
+    # Monitoring and metrics
+    hooks: List[HookDetectionResult] = Field(default_factory=list)
+    metrics: List[MetricDetectionResult] = Field(default_factory=list)
+    
+    # Summary information
+    total_gpus: int = Field(ge=0, description="Total number of GPUs detected")
+    total_gpu_memory_mb: int = Field(ge=0, description="Total GPU memory across all devices")
+    frameworks_available: List[FrameworkName] = Field(default_factory=list)
+    capabilities_summary: Dict[str, Any] = Field(default_factory=dict)
+    
+    @validator("total_gpus", pre=False, always=True)
+    def validate_total_gpus(cls, v, values):
+        gpus = values.get("gpus", [])
+        return len(gpus)
+    
+    @validator("total_gpu_memory_mb", pre=False, always=True) 
+    def validate_total_gpu_memory(cls, v, values):
+        gpus = values.get("gpus", [])
+        return sum(gpu.memory_total_mb for gpu in gpus)
+    
+    @validator("frameworks_available", pre=False, always=True)
+    def validate_frameworks_available(cls, v, values):
+        frameworks = values.get("frameworks", [])
+        return [f.name for f in frameworks if f.available]

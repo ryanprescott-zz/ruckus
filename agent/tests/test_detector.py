@@ -3,6 +3,14 @@
 import pytest
 from unittest.mock import patch, Mock, MagicMock, AsyncMock
 from ruckus_agent.core.detector import AgentDetector
+from ruckus_common.models import (
+    SystemDetectionResult, CPUDetectionResult, GPUDetectionResult,
+    FrameworkDetectionResult, HookDetectionResult, MetricDetectionResult,
+    OSType, CPUArchitecture, GPUVendor, TensorCoreGeneration,
+    PrecisionType, DetectionMethod, FrameworkName, HookType,
+    MetricType, MetricCollectionMethod, FrameworkCapabilities,
+    AgentCapabilityDetectionResult
+)
 
 
 class TestAgentDetector:
@@ -13,10 +21,31 @@ class TestAgentDetector:
         """Test that detect_all returns expected structure."""
         detector = AgentDetector()
         
+        # Create mock Pydantic model instances instead of dicts
+        mock_system = SystemDetectionResult(
+            hostname="test",
+            os=OSType.LINUX,
+            os_version="5.4.0",
+            kernel="5.4.0-generic",
+            python_version="3.12.0",
+            total_memory_gb=16.0,
+            available_memory_gb=8.0,
+            disk_total_gb=100.0,
+            disk_available_gb=50.0
+        )
+        
+        mock_cpu = CPUDetectionResult(
+            model="Intel Core i7",
+            cores_physical=4,
+            cores_logical=8,
+            frequency_mhz=3000.0,
+            architecture=CPUArchitecture.X86_64
+        )
+        
         with patch.multiple(
             detector,
-            detect_system=AsyncMock(return_value={"hostname": "test"}),
-            detect_cpu=AsyncMock(return_value={"cores": 4}),
+            detect_system=AsyncMock(return_value=mock_system),
+            detect_cpu=AsyncMock(return_value=mock_cpu),
             detect_gpus=AsyncMock(return_value=[]),
             detect_frameworks=AsyncMock(return_value=[]),
             detect_models=AsyncMock(return_value=[]),
@@ -25,9 +54,15 @@ class TestAgentDetector:
         ):
             result = await detector.detect_all()
             
-            expected_keys = ["system", "cpu", "gpus", "frameworks", "models", "hooks", "metrics"]
-            for key in expected_keys:
-                assert key in result
+            # Check that result is the new Pydantic model
+            assert isinstance(result, AgentCapabilityDetectionResult)
+            assert result.system == mock_system
+            assert result.cpu == mock_cpu
+            assert result.gpus == []
+            assert result.frameworks == []
+            assert result.models == []
+            assert result.hooks == []
+            assert result.metrics == []
 
     @pytest.mark.asyncio
     @patch('platform.node')
@@ -62,11 +97,13 @@ class TestAgentDetector:
         detector = AgentDetector()
         result = await detector.detect_system()
         
-        assert result["hostname"] == "test-hostname"
-        assert result["os"] == "Linux"
-        assert result["python_version"] == "3.12.0"
-        assert result["total_memory_gb"] == pytest.approx(16.0, rel=0.1)
-        assert result["available_memory_gb"] == pytest.approx(8.0, rel=0.1)
+        # Now result is a Pydantic model, not a dictionary
+        assert isinstance(result, SystemDetectionResult)
+        assert result.hostname == "test-hostname"
+        assert result.os == OSType.LINUX  # Mapped from "Linux" string
+        assert result.python_version == "3.12.0"
+        assert result.total_memory_gb == pytest.approx(16.0, rel=0.1)
+        assert result.available_memory_gb == pytest.approx(8.0, rel=0.1)
 
     @pytest.mark.asyncio
     @patch('platform.processor')
@@ -87,11 +124,13 @@ class TestAgentDetector:
         detector = AgentDetector()
         result = await detector.detect_cpu()
         
-        assert result["model"] == "Intel Core i7"
-        assert result["cores_physical"] == 4
-        assert result["cores_logical"] == 8
-        assert result["frequency_mhz"] == 2800.0
-        assert result["architecture"] == "x86_64"
+        # Now result is a Pydantic model, not a dictionary
+        assert isinstance(result, CPUDetectionResult)
+        assert result.model == "Intel Core i7"
+        assert result.cores_physical == 4
+        assert result.cores_logical == 8
+        assert result.frequency_mhz == 2800.0
+        assert result.architecture == CPUArchitecture.X86_64  # Mapped from "x86_64" string
 
     @pytest.mark.asyncio
     @patch('ruckus_agent.core.detector.subprocess')

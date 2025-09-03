@@ -122,6 +122,101 @@ Each subproject maintains its own dependencies and can be developed independentl
 
 See individual subproject README files for specific development instructions.
 
+## Hardware Detection & Enum Reference
+
+RUCKUS uses comprehensive Pydantic enums for hardware detection, providing standardized values for UI dropdowns and validation. Below is the complete reference for all supported hardware types and their mappings:
+
+### Operating Systems (`OSType`)
+- `LINUX` - Linux distributions (Ubuntu, CentOS, RHEL, etc.)
+- `WINDOWS` - Microsoft Windows  
+- `DARWIN` - Apple macOS
+- `UNKNOWN` - Unrecognized or other operating systems
+
+### CPU Architectures (`CPUArchitecture`)
+- `X86_64` / `AMD64` - 64-bit x86 processors (Intel, AMD)
+- `ARM64` / `AARCH64` - 64-bit ARM processors (Apple Silicon, server ARM)
+- `ARM` - 32-bit ARM processors
+- `I386` - 32-bit x86 processors (legacy)
+- `UNKNOWN` - Unrecognized CPU architecture
+
+### GPU Vendors (`GPUVendor`)
+- `NVIDIA` - NVIDIA graphics cards (GeForce, Quadro, Tesla, A-series)
+- `AMD` - AMD graphics cards (Radeon, Instinct)
+- `INTEL` - Intel integrated and discrete graphics
+- `APPLE` - Apple Silicon integrated GPU (M1, M2, M3)
+- `UNKNOWN` - Unrecognized or other GPU vendors
+
+### NVIDIA Tensor Core Generations (`TensorCoreGeneration`)
+- `FIRST_GEN` - Volta architecture (Tesla V100, Titan V)
+- `SECOND_GEN` - Turing architecture (RTX 20 series: RTX 2060/2070/2080/2090)
+- `THIRD_GEN` - Ampere architecture (RTX 30 series: RTX 3060/3070/3080/3090, A100/A6000)  
+- `FOURTH_GEN` - Ada Lovelace/Hopper (RTX 40 series: RTX 4060/4070/4080/4090, H100)
+- `NONE` - No tensor cores (older GPUs or non-NVIDIA)
+
+### GPU Precision Support (`PrecisionType`)
+- `FP64` - Double precision (64-bit floating point)
+- `FP32` - Single precision (32-bit floating point) - **Universal support**
+- `TF32` - TensorFloat-32 (19-bit precision) - **Ampere+ only**
+- `FP16` - Half precision (16-bit floating point) - **Volta+**
+- `BF16` - Brain Float 16 (Google format) - **Ampere+**
+- `INT8` - 8-bit integer - **Turing+**  
+- `FP8` - 8-bit floating point - **Hopper+ only**
+
+### GPU Detection Methods (`DetectionMethod`)
+- `PYNVML` - NVIDIA Management Library (most comprehensive for NVIDIA)
+- `NVIDIA_SMI` - NVIDIA System Management Interface fallback
+- `PYTORCH_CUDA` - PyTorch CUDA detection
+- `PYTORCH_MPS` - PyTorch Metal Performance Shaders (Apple Silicon)
+- `PYTORCH_ROCM` - PyTorch ROCm (AMD GPUs)
+- `UNKNOWN` - Unrecognized detection method
+
+### ML Frameworks (`FrameworkName`)
+- `PYTORCH` - PyTorch deep learning framework
+- `TRANSFORMERS` - Hugging Face Transformers library
+- `VLLM` - vLLM high-performance inference engine
+- `TENSORRT` - NVIDIA TensorRT optimization library
+- `ONNX` - Open Neural Network Exchange format
+- `TRITON` - NVIDIA Triton Inference Server
+- `UNKNOWN` - Unrecognized or other framework
+
+### System Monitoring Tools (`HookType`)
+- `GPU_MONITOR` - GPU monitoring tools (nvidia-smi, rocm-smi)
+- `CPU_MONITOR` - CPU monitoring tools (htop, top)
+- `MEMORY_MONITOR` - Memory monitoring tools (free, vmstat)
+- `DISK_MONITOR` - Disk I/O monitoring (iotop, iostat)
+- `PROCESS_MONITOR` - Process monitoring (ps, pidstat)
+- `NETWORK_MONITOR` - Network monitoring (netstat, iftop)
+- `PROFILER` - Performance profilers (nsight, perf)
+- `UNKNOWN` - Unrecognized monitoring tool
+
+### Metric Collection Methods (`MetricCollectionMethod`)
+- `TIMER` - Built-in timing measurements
+- `CALCULATION` - Computed/derived metrics
+- `NVIDIA_SMI` - NVIDIA GPU metrics via nvidia-smi
+- `PYNVML` - NVIDIA GPU metrics via Python NVML
+- `PSUTIL` - System resource metrics via psutil
+- `PYTORCH` - PyTorch built-in performance metrics
+- `CUSTOM` - Custom collection logic
+- `EXTERNAL_API` - External service API calls
+- `UNKNOWN` - Unrecognized collection method
+
+### Real-World GPU Examples
+
+**NVIDIA Consumer (GeForce)**
+- RTX 4090: `FOURTH_GEN` tensor cores, `FP8` precision support
+- RTX 3080: `THIRD_GEN` tensor cores, `BF16` precision support  
+- RTX 2080: `SECOND_GEN` tensor cores, `FP16` precision support
+
+**NVIDIA Professional (Quadro/Tesla)**
+- H100: `FOURTH_GEN` tensor cores, full `FP8` support
+- A100: `THIRD_GEN` tensor cores, `BF16` + sparsity support
+- V100: `FIRST_GEN` tensor cores, `FP16` support only
+
+**Apple Silicon**
+- M1/M2/M3: `APPLE` vendor, `PYTORCH_MPS` detection, custom acceleration
+
+These enums ensure consistent hardware identification across agent registration, job assignment, and UI display. The system automatically detects capabilities and maps them to these standardized values.
+
 ## Documentation
 
 - [Project Overview](docs/project_overview.md) - Detailed system architecture and design

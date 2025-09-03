@@ -75,20 +75,20 @@ class Agent:
             detector = AgentDetector()
             detected = await detector.detect_all()
             
-            # Store system info in storage
+            # Convert Pydantic models to dict for storage (legacy format)
             system_info = {
-                "system": detected.get("system", {}),
-                "cpu": detected.get("cpu", {}),
-                "gpus": detected.get("gpus", []),
-                "frameworks": detected.get("frameworks", []),
-                "models": detected.get("models", []),
-                "hooks": detected.get("hooks", []),
-                "metrics": detected.get("metrics", [])
+                "system": detected.system.dict() if detected.system else {},
+                "cpu": detected.cpu.dict() if detected.cpu else {},
+                "gpus": [gpu.dict() for gpu in detected.gpus] if detected.gpus else [],
+                "frameworks": [fw.dict() for fw in detected.frameworks] if detected.frameworks else [],
+                "models": detected.models,  # Already in dict format
+                "hooks": [hook.dict() for hook in detected.hooks] if detected.hooks else [],
+                "metrics": [metric.dict() for metric in detected.metrics] if detected.metrics else []
             }
             await self.storage.store_system_info(system_info)
             
             logger.info(f"Agent {self.agent_id} system detection completed successfully")
-            logger.debug(f"Detected {len(detected.get('gpus', []))} GPUs, {len(detected.get('frameworks', []))} frameworks")
+            logger.debug(f"Detected {len(detected.gpus)} GPUs, {len(detected.frameworks)} frameworks")
         except Exception as e:
             logger.error(f"Agent {self.agent_id} system detection failed: {e}")
             raise

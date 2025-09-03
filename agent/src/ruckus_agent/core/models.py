@@ -5,53 +5,23 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from enum import Enum
 
-from ruckus_common.models import AgentType
+# Import common models and enums
+from ruckus_common.models import (
+    AgentType,
+    # Use the common detection result models instead of duplicating them
+    SystemDetectionResult, CPUDetectionResult, GPUDetectionResult,
+    FrameworkDetectionResult, HookDetectionResult, MetricDetectionResult,
+    AgentCapabilityDetectionResult
+)
 
 
-class GPUInfo(BaseModel):
-    """GPU device information."""
-    index: int
-    name: str
-    uuid: Optional[str] = None
-    memory_total_mb: int
-    memory_available_mb: int
-    compute_capability: Optional[str] = None
-    driver_version: Optional[str] = None
-    cuda_version: Optional[str] = None
-    temperature: Optional[float] = None
-    power_limit_w: Optional[int] = None
-    utilization_percent: Optional[float] = None
-
-
-class CPUInfo(BaseModel):
-    """CPU information."""
-    model: str
-    cores_physical: int
-    cores_logical: int
-    frequency_mhz: float
-    architecture: str
-    cache_size_kb: Optional[int] = None
-
-
-class SystemInfo(BaseModel):
-    """System information."""
-    hostname: str
-    os: str
-    os_version: str
-    kernel: str
-    python_version: str
-    total_memory_gb: float
-    available_memory_gb: float
-    disk_total_gb: float
-    disk_available_gb: float
-
-
-class FrameworkInfo(BaseModel):
-    """ML framework information."""
-    name: str
-    version: str
-    available: bool
-    capabilities: Dict[str, bool] = Field(default_factory=dict)
+# Legacy aliases for backward compatibility (if needed)
+# These can be removed once all code is updated to use common models
+GPUInfo = GPUDetectionResult
+CPUInfo = CPUDetectionResult  
+SystemInfo = SystemDetectionResult
+FrameworkInfo = FrameworkDetectionResult
+HookInfo = HookDetectionResult
 
 
 class ModelInfo(BaseModel):
