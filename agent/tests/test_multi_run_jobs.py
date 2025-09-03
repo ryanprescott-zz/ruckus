@@ -20,8 +20,7 @@ def settings():
     """Create test settings."""
     return Settings(
         agent_type=AgentType.WHITE_BOX,
-        max_concurrent_jobs=1,
-        orchestrator_url=None
+        max_concurrent_jobs=1
     )
 
 
@@ -341,7 +340,6 @@ class TestMultiRunJobExecution:
             
             # Mock additional methods that might be called
             with patch.object(agent, '_get_current_hardware_info') as mock_hw_info, \
-                 patch.object(agent, '_send_update') as mock_send_update, \
                  patch.object(agent.error_reporter, 'start_job_tracking') as mock_start_tracking, \
                  patch.object(agent.error_reporter, 'update_job_stage') as mock_update_stage, \
                  patch.object(agent.error_reporter, 'cleanup_job_tracking') as mock_cleanup, \
@@ -349,7 +347,6 @@ class TestMultiRunJobExecution:
                  patch.object(agent, '_verify_clean_idle_state') as mock_verify_cleanup:
                 
                 mock_hw_info.return_value = {"gpu_name": "Test GPU", "gpu_memory_mb": 8192}
-                mock_send_update.return_value = None  # Successful updates
                 mock_start_tracking.return_value = None
                 mock_update_stage.return_value = None
                 mock_cleanup.return_value = None
@@ -460,7 +457,6 @@ class TestMultiRunJobExecution:
             
             # Mock additional methods
             with patch.object(agent, '_get_current_hardware_info') as mock_hw_info, \
-                 patch.object(agent, '_send_update') as mock_send_update, \
                  patch.object(agent.error_reporter, 'start_job_tracking') as mock_start_tracking, \
                  patch.object(agent.error_reporter, 'update_job_stage') as mock_update_stage, \
                  patch.object(agent.error_reporter, 'cleanup_job_tracking') as mock_cleanup, \
@@ -468,7 +464,6 @@ class TestMultiRunJobExecution:
                  patch.object(agent, '_verify_clean_idle_state') as mock_verify_cleanup:
                 
                 mock_hw_info.return_value = {"gpu_name": "Test GPU"}
-                mock_send_update.return_value = None
                 mock_start_tracking.return_value = None
                 mock_update_stage.return_value = None
                 mock_cleanup.return_value = None
@@ -527,7 +522,6 @@ class TestMultiRunJobExecution:
             
             # Mock additional methods
             with patch.object(agent, '_get_current_hardware_info') as mock_hw_info, \
-                 patch.object(agent, '_send_update') as mock_send_update, \
                  patch.object(agent.error_reporter, 'start_job_tracking') as mock_start_tracking, \
                  patch.object(agent.error_reporter, 'update_job_stage') as mock_update_stage, \
                  patch.object(agent.error_reporter, 'cleanup_job_tracking') as mock_cleanup, \
@@ -535,7 +529,6 @@ class TestMultiRunJobExecution:
                  patch.object(agent, '_verify_clean_idle_state') as mock_verify_cleanup:
                 
                 mock_hw_info.return_value = {"gpu_name": "Test GPU"}
-                mock_send_update.return_value = None
                 mock_start_tracking.return_value = None
                 mock_update_stage.return_value = None
                 mock_cleanup.return_value = None

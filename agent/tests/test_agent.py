@@ -13,8 +13,7 @@ def settings():
     """Create test settings."""
     return Settings(
         agent_type=AgentType.WHITE_BOX,
-        max_concurrent_jobs=2,
-        orchestrator_url=None  # No orchestrator for tests
+        max_concurrent_jobs=2
     )
 
 
@@ -38,7 +37,6 @@ class TestAgent:
         assert agent.settings == settings
         assert agent.agent_id.startswith("agent-")
         assert agent.agent_name.endswith("-white_box")
-        assert not agent.registered
         assert len(agent.running_jobs) == 0
         assert agent.startup_time is not None
 

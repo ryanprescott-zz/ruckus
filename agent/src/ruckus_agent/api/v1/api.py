@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 
 from ruckus_common.models import (
     JobRequest, JobUpdate, JobResult, AgentType,
-    AgentRegistrationResponse, AgentInfoResponse, AgentInfo, AgentStatus
+    AgentInfoResponse, AgentInfo, AgentStatus
 )
 from ruckus_agent.core.models import JobErrorReport
 
@@ -19,7 +19,6 @@ async def api_info():
         "version": "v1",
         "type": "agent",
         "endpoints": [
-            "/register",
             "/info",
             "/capabilities",
             "/execute",
@@ -29,19 +28,6 @@ async def api_info():
             "/errors/clear",
         ]
     }
-
-
-@router.get("/register", response_model=AgentRegistrationResponse)
-async def register_agent(request: Request):
-    """Register agent with server - announces agent ID and name."""
-    agent = request.app.state.agent
-    
-    response = AgentRegistrationResponse(
-        agent_id=agent.agent_id,
-        agent_name=agent.agent_name,
-        message="Agent registered successfully"
-    )
-    return response
 
 
 @router.get("/info", response_model=AgentInfoResponse)

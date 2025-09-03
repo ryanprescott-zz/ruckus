@@ -1,7 +1,6 @@
 """Main agent implementation."""
 
 import asyncio
-import httpx
 import logging
 import uuid
 from typing import Dict, Any, Optional, List
@@ -12,7 +11,7 @@ from ruckus_common.models import (
     SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage
 )
 from .config import Settings
-from .models import AgentRegistration, JobErrorReport
+from .models import JobErrorReport
 from .detector import AgentDetector
 from .storage import AgentStorage, InMemoryStorage
 from ..utils.error_reporter import ErrorReporter
@@ -28,13 +27,11 @@ class Agent:
         # Generate unique agent ID and name
         self.agent_id = f"agent-{uuid.uuid4().hex[:8]}"
         self.agent_name = f"{self.agent_id}-{settings.agent_type.value}"
-        self.orchestrator_url = settings.orchestrator_url
 
         # Storage backend
         self.storage = storage or InMemoryStorage()
 
         # State
-        self.registered = False
         self.running_jobs: Dict[str, Any] = {}
         self.job_queue: asyncio.Queue = asyncio.Queue()
         self.queued_job_ids: List[str] = []  # Track queued job IDs for status reporting
@@ -46,14 +43,11 @@ class Agent:
         self.error_reporter = ErrorReporter(self.agent_id)
         self.error_reports: Dict[str, JobErrorReport] = {}  # Store error reports for server retrieval
 
-        # HTTP client for orchestrator communication
-        self.client = httpx.AsyncClient()
 
         # Background tasks
         self.tasks: List[asyncio.Task] = []
         
         logger.info(f"Agent initialized: {self.agent_id} ({self.agent_name})")
-        logger.debug(f"Orchestrator URL: {self.orchestrator_url}")
 
     async def start(self):
         """Start the agent."""
@@ -62,12 +56,7 @@ class Agent:
         # Detect capabilities
         await self._detect_capabilities()
 
-        # Register with orchestrator
-        if self.orchestrator_url:
-            await self._register()
-
         # Start background tasks
-        self.tasks.append(asyncio.create_task(self._heartbeat_loop()))
         self.tasks.append(asyncio.create_task(self._job_executor()))
 
     async def stop(self):
@@ -77,9 +66,6 @@ class Agent:
         # Cancel background tasks
         for task in self.tasks:
             task.cancel()
-
-        # Close HTTP client
-        await self.client.aclose()
 
     async def _detect_capabilities(self):
         """Detect agent capabilities and system info."""
@@ -116,74 +102,7 @@ class Agent:
             logger.error(f"Agent {self.agent_id} capability detection failed: {e}")
             raise
 
-    async def _register(self):
-        """Register with orchestrator."""
-        logger.info(f"Agent {self.agent_id} attempting registration with orchestrator")
-        try:
-            # Get full system info including discovered models
-            system_info = await self.get_system_info()
-            capabilities = await self.get_capabilities()
-            
-            # Create comprehensive registration
-            registration = AgentRegistration(
-                agent_id=self.agent_id,
-                agent_name=self.agent_name,
-                agent_type=self.settings.agent_type,
-                
-                # System information
-                system=system_info.get("system"),
-                cpu=system_info.get("cpu"),
-                gpus=[gpu for gpu in system_info.get("gpus", [])],
-                
-                # Framework and model information  
-                frameworks=[fw for fw in system_info.get("frameworks", [])],
-                models=[model for model in system_info.get("models", [])],
-                hooks=[hook for hook in system_info.get("hooks", [])],
-                
-                # Capabilities
-                capabilities=capabilities,
-                metrics_available=[metric for metric in system_info.get("metrics", [])],
-                
-                # Configuration
-                max_concurrent_jobs=self.settings.max_concurrent_jobs,
-                max_batch_size=1,  # TODO: Make configurable
-            )
 
-            response = await self.client.post(
-                f"{self.orchestrator_url}/api/v1/agents/register",
-                json=registration.dict(),
-            )
-            if response.status_code == 200:
-                self.registered = True
-                logger.info(f"Agent {self.agent_id} registered successfully with orchestrator")
-                logger.debug(f"Registered with {len(registration.models)} models, {len(registration.frameworks)} frameworks")
-            else:
-                logger.error(f"Registration failed with status {response.status_code}: {response.text}")
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} registration failed: {e}")
-            raise
-
-    async def _heartbeat_loop(self):
-        """Send periodic heartbeats to orchestrator."""
-        logger.debug(f"Agent {self.agent_id} starting heartbeat loop")
-        while True:
-            try:
-                await asyncio.sleep(self.settings.heartbeat_interval)
-
-                if self.registered:
-                    status = await self.get_status()
-                    response = await self.client.post(
-                        f"{self.orchestrator_url}/api/v1/agents/{self.agent_id}/heartbeat",
-                        json=status.dict(),
-                    )
-                    logger.debug(f"Heartbeat sent, status: {response.status_code}")
-                else:
-                    logger.debug("Skipping heartbeat - not registered")
-            except asyncio.CancelledError:
-                logger.debug(f"Agent {self.agent_id} heartbeat loop cancelled")
-                break
-            except Exception as e:
-                logger.error(f"Agent {self.agent_id} heartbeat error: {e}")
 
     async def _job_executor(self):
         """Execute jobs from queue."""
@@ -219,14 +138,8 @@ class Agent:
                 "start_time": start_time,
             }
 
-            # Send initial status update
+            # Update job stage
             await self.error_reporter.update_job_stage(job.job_id, "starting")
-            update = JobUpdate(
-                job_id=job.job_id,
-                status=JobStatus.RUNNING,
-                stage=JobStage.INITIALIZING,
-            )
-            await self._send_update(update)
             
             # Execute multi-run job
             if job.runs_per_job == 1:
@@ -237,15 +150,6 @@ class Agent:
                 # Multi-run job - with cold start separation
                 job_result = await self._execute_multi_run_job(job, start_time)
             
-            # Send final success update
-            update = JobUpdate(
-                job_id=job.job_id,
-                status=JobStatus.COMPLETED,
-                stage=JobStage.FINALIZING,
-                output=job_result,
-                timestamp=datetime.now(timezone.utc)
-            )
-            await self._send_update(update)
             
             logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully")
             
@@ -285,13 +189,7 @@ class Agent:
                 self.crashed = True
                 self.crash_reason = f"Failed cleanup after job {job.job_id}: {cleanup_error}"
             
-            # Send failure update to server
-            failure_update = JobUpdate(
-                job_id=job.job_id,
-                status=JobStatus.FAILED,
-                message=str(e)
-            )
-            await self._send_update(failure_update)
+            logger.error(f"Job {job.job_id} failed: {str(e)}")
             
         finally:
             # Clean up job tracking and running jobs
@@ -757,19 +655,6 @@ class Agent:
         
         return cleanup_actions
 
-    async def _send_update(self, update: JobUpdate):
-        """Send job update to orchestrator."""
-        if self.orchestrator_url:
-            try:
-                response = await self.client.post(
-                    f"{self.orchestrator_url}/api/v1/jobs/{update.job_id}/update",
-                    json=update.dict(),
-                )
-                logger.debug(f"Job update sent for {update.job_id}: {update.status}, status: {response.status_code}")
-            except Exception as e:
-                logger.error(f"Agent {self.agent_id} failed to send update for job {update.job_id}: {e}")
-        else:
-            logger.debug(f"No orchestrator URL configured, skipping update for job {update.job_id}")
     
     async def get_capabilities(self) -> Dict:
         """Get agent capabilities."""

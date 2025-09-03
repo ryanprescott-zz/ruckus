@@ -56,11 +56,9 @@ class TestAgentIntegration:
         return Settings(
             agent_type=AgentType.WHITE_BOX,
             model_cache_dir=temp_models_dir,
-            orchestrator_url=None,  # No orchestrator for unit tests
             max_concurrent_jobs=1,
             enable_vllm=True,
-            enable_gpu_monitoring=False,  # Disable for unit tests
-            heartbeat_interval=1  # Fast heartbeat for tests
+            enable_gpu_monitoring=False  # Disable for unit tests
         )
     
     @pytest.fixture
@@ -124,7 +122,6 @@ class TestAgentIntegration:
         # Verify initial state
         assert agent.agent_id.startswith("agent-")
         assert agent.agent_name.endswith("-white_box")
-        assert not agent.registered
         assert len(agent.running_jobs) == 0
         assert len(agent.queued_job_ids) == 0
         assert not agent.crashed
@@ -135,7 +132,7 @@ class TestAgentIntegration:
             await agent.start()
             
             # Verify startup completed
-            assert len(agent.tasks) == 2  # heartbeat and job executor tasks
+            assert len(agent.tasks) == 1  # job executor task
             mock_detect.assert_called_once()
         
         await agent.stop()
@@ -396,7 +393,6 @@ class TestAgentStatusTransitions:
         return Settings(
             agent_type=AgentType.WHITE_BOX,
             model_cache_dir="/tmp/test-models",
-            orchestrator_url=None,
             max_concurrent_jobs=1,
             enable_gpu_monitoring=False
         )
@@ -572,7 +568,6 @@ class TestEndToEndScenarios:
         # Setup agent with models
         settings = Settings(
             model_cache_dir=temp_models_dir,
-            orchestrator_url=None,
             enable_gpu_monitoring=False
         )
         storage = InMemoryStorage()

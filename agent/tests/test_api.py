@@ -84,7 +84,6 @@ class TestAgentAPI:
         data = response.json()
         assert data["version"] == "v1"
         assert data["type"] == "agent"
-        assert "/register" in data["endpoints"]
         assert "/info" in data["endpoints"]
 
     def test_health_endpoint(self, client):
@@ -97,18 +96,7 @@ class TestAgentAPI:
         assert "version" in data
         assert "agent_id" in data
 
-    def test_register_endpoint(self, client, test_agent):
-        """Test the registration endpoint."""
-        response = client.get("/api/v1/register")
-        assert response.status_code == 200
-        
-        data = response.json()
-        assert data["agent_id"] == test_agent.agent_id
-        assert data["agent_name"] == test_agent.agent_name
-        assert data["message"] == "Agent registered successfully"
-        assert "server_time" in data
-
-    def test_info_endpoint(self, client, test_agent):
+def test_info_endpoint(self, client, test_agent):
         """Test the info endpoint."""
         response = client.get("/api/v1/info")
         assert response.status_code == 200
@@ -154,16 +142,7 @@ class TestAgentAPI:
 
     def test_api_response_models(self, client):
         """Test that API responses match expected Pydantic models."""
-        # Test register endpoint response model
-        register_response = client.get("/api/v1/register")
-        assert register_response.status_code == 200
-        register_data = register_response.json()
-        
-        required_register_fields = ["agent_id", "server_time"]
-        for field in required_register_fields:
-            assert field in register_data
-        
-        # Test info endpoint response model
+# Test info endpoint response model
         info_response = client.get("/api/v1/info")
         assert info_response.status_code == 200
         info_data = info_response.json()
@@ -181,10 +160,10 @@ class TestAgentAPI:
         # Test that multiple sequential requests work
         responses = []
         for _ in range(5):
-            response = client.get("/api/v1/register")
+            response = client.get("/api/v1/info")
             responses.append(response)
         
         for response in responses:
             assert response.status_code == 200
             data = response.json()
-            assert "agent_id" in data
+            assert "agent_info" in data

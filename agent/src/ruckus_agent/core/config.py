@@ -24,10 +24,6 @@ class Settings(BaseSettings):
     openapi_prefix: str = Field(default="/api/static", description="Prefix path for OpenAPI static files")
     cors_origins: list = Field(default=["*"], description="List of allowed CORS origins for cross-origin requests")
 
-    # Orchestrator
-    orchestrator_url: Optional[str] = Field(default=None, description="URL of the orchestrator server to connect to")
-    heartbeat_interval: int = Field(default=30, description="Interval in seconds between heartbeat messages to orchestrator")
-    registration_timeout: int = Field(default=60, description="Timeout in seconds for agent registration with orchestrator")
 
     # Job Execution
     max_concurrent_jobs: int = Field(default=1, description="Maximum number of jobs that can run concurrently")

@@ -530,8 +530,7 @@ def create_test_agent_with_mocked_hardware(hardware_manager: HardwareMockManager
     
     settings = Settings(
         agent_type=AgentType.WHITE_BOX,
-        max_concurrent_jobs=2,
-        orchestrator_url=None
+        max_concurrent_jobs=2
     )
     
     agent = Agent(settings, InMemoryStorage())

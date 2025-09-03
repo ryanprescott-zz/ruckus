@@ -126,33 +126,6 @@ class AgentCapabilities(AgentCapabilitiesBase):
     optimization_support: List[str] = Field(default_factory=list)
 
 
-class AgentRegistration(BaseModel):
-    """Complete agent registration."""
-    agent_id: str
-    agent_name: Optional[str] = None
-    agent_type: AgentType
-    agent_version: str = "0.1.0"
-
-    # Hardware
-    system: Optional[SystemInfo] = None
-    cpu: Optional[CPUInfo] = None
-    gpus: List[GPUInfo] = Field(default_factory=list)
-
-    # Software
-    frameworks: List[FrameworkInfo] = Field(default_factory=list)
-    models: List[ModelInfo] = Field(default_factory=list)
-    hooks: List[HookInfo] = Field(default_factory=list)
-
-    # Capabilities
-    capabilities: Dict[str, Any] = Field(default_factory=dict)
-    metrics_available: List[MetricCapability] = Field(default_factory=list)
-
-    # Configuration
-    max_concurrent_jobs: int = 1
-    max_batch_size: int = 1
-
-    # Metadata
-    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentStatus(BaseModel):

@@ -1,14 +1,13 @@
 # RUCKUS Agent
 
-Worker agent component for the RUCKUS distributed benchmarking system. The agent automatically detects system capabilities, registers with the server, and provides detailed system information through REST APIs.
+Worker agent component for the RUCKUS distributed benchmarking system. The agent automatically detects system capabilities and provides detailed system information through REST APIs.
 
 ## Features
 
 ### Core Agent Capabilities
-- **Automatic Registration**: Generates unique agent ID and registers with server
 - **System Detection**: Automatically detects CPU, GPU, memory, and available ML frameworks
 - **Extensible Storage**: Abstract storage backend (in-memory by default, extensible to PostgreSQL/SQLite)
-- **RESTful API**: Provides `/register` and `/info` endpoints for server communication
+- **RESTful API**: Provides `/info` and other endpoints for system communication
 
 ### Multi-Run Job System (NEW)
 - **Statistical Job Execution**: Execute jobs multiple times (`runs_per_job` parameter) for reliable statistics
@@ -69,9 +68,6 @@ ruckus-agent
 
 ### Testing the Agent
 ```bash
-# Registration endpoint
-curl http://localhost:8081/api/v1/register
-
 # System info endpoint  
 curl http://localhost:8081/api/v1/info
 
@@ -80,17 +76,6 @@ curl http://localhost:8081/health
 ```
 
 ## API Endpoints
-
-### `/api/v1/register` (GET)
-Returns agent registration information:
-```json
-{
-  "agent_id": "agent-656b6586",
-  "agent_name": "agent-656b6586-white_box", 
-  "message": "Agent registered successfully",
-  "server_time": "2025-08-21T22:02:01.315925"
-}
-```
 
 ### `/api/v1/info` (GET)
 Returns detailed system information including new GPU benchmarking data:
