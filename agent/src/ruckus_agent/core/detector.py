@@ -141,8 +141,8 @@ class AgentDetector:
             handle = pynvml.nvmlDeviceGetHandleByIndex(device_index)
             
             # Basic GPU information
-            name = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
-            uuid = pynvml.nvmlDeviceGetUUID(handle).decode('utf-8')
+            name = pynvml.nvmlDeviceGetName(handle)
+            uuid = pynvml.nvmlDeviceGetUUID(handle)
             
             # Memory information
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -188,7 +188,7 @@ class AgentDetector:
                 "memory_utilization_percent": memory_util,
                 "temperature_celsius": temperature,
                 "power_usage_watts": power_watts,
-                "driver_version": pynvml.nvmlSystemGetDriverVersion().decode('utf-8'),
+                "driver_version": pynvml.nvmlSystemGetDriverVersion(),
                 "detection_method": "pynvml"
             }
             
