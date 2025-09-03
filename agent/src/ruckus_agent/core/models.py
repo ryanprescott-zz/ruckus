@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from enum import Enum
 
-from ruckus_common.models import AgentType, AgentCapabilitiesBase
+from ruckus_common.models import AgentType
 
 
 class GPUInfo(BaseModel):
@@ -98,32 +98,8 @@ class HookInfo(BaseModel):
     working: bool
 
 
-class MetricCapability(BaseModel):
-    """Metric collection capability."""
-    name: str
-    type: str  # performance, resource, quality
-    available: bool
-    collection_method: str
-    requires: List[str] = Field(default_factory=list)
 
 
-class AgentCapabilities(AgentCapabilitiesBase):
-    """Extended agent capabilities."""
-    # Hardware capabilities
-    gpu_count: int = 0
-    gpu_memory_total_gb: float = 0
-
-    # Software capabilities
-    frameworks_available: List[FrameworkInfo] = Field(default_factory=list)
-    models_available: List[str] = Field(default_factory=list)
-
-    # Monitoring capabilities
-    metrics_available: List[MetricCapability] = Field(default_factory=list)
-    hooks_available: List[str] = Field(default_factory=list)
-
-    # Advanced capabilities
-    quantization_support: List[str] = Field(default_factory=list)
-    optimization_support: List[str] = Field(default_factory=list)
 
 
 

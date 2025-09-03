@@ -21,15 +21,6 @@ class AgentStorage(ABC):
         """Retrieve system information."""
         pass
     
-    @abstractmethod
-    async def store_capabilities(self, capabilities: Dict[str, Any]) -> None:
-        """Store agent capabilities."""
-        pass
-    
-    @abstractmethod
-    async def get_capabilities(self) -> Dict[str, Any]:
-        """Retrieve agent capabilities."""
-        pass
     
     @abstractmethod
     async def update_last_seen(self) -> None:
@@ -47,7 +38,6 @@ class InMemoryStorage(AgentStorage):
     
     def __init__(self):
         self._system_info: Dict[str, Any] = {}
-        self._capabilities: Dict[str, Any] = {}
         self._last_seen: Optional[datetime] = None
         logger.info("InMemoryStorage initialized")
     
@@ -61,15 +51,6 @@ class InMemoryStorage(AgentStorage):
         """Retrieve system information from memory."""
         return self._system_info.copy()
     
-    async def store_capabilities(self, capabilities: Dict[str, Any]) -> None:
-        """Store agent capabilities in memory."""
-        logger.debug("Storing capabilities in memory")
-        self._capabilities = capabilities.copy()
-        logger.debug(f"Capabilities stored: {len(capabilities)} keys")
-    
-    async def get_capabilities(self) -> Dict[str, Any]:
-        """Retrieve agent capabilities from memory."""
-        return self._capabilities.copy()
     
     async def update_last_seen(self) -> None:
         """Update last seen timestamp."""

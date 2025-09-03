@@ -55,7 +55,7 @@ class TestAgentIntegration:
         """Create agent settings for testing."""
         return Settings(
             agent_type=AgentType.WHITE_BOX,
-            model_cache_dir=temp_models_dir,
+            model_path=temp_models_dir,
             max_concurrent_jobs=1,
             enable_vllm=True,
             enable_gpu_monitoring=False  # Disable for unit tests
@@ -82,7 +82,7 @@ class TestAgentIntegration:
                 "models": [
                     {
                         "name": "test-llama-7b",
-                        "path": f"{agent_settings.model_cache_dir}/test-llama-7b",
+                        "path": f"{agent_settings.model_path}/test-llama-7b",
                         "model_type": "llama",
                         "architecture": "LlamaForCausalLM",
                         "format": "pytorch",
@@ -97,15 +97,6 @@ class TestAgentIntegration:
             # Store system info
             await agent.storage.store_system_info(mock_detected_data)
             
-            # Store capabilities
-            capabilities = {
-                "agent_type": "white_box",
-                "gpu_count": len(mock_detected_data["gpus"]),
-                "frameworks": [f["name"] for f in mock_detected_data["frameworks"]],
-                "max_concurrent_jobs": agent.settings.max_concurrent_jobs,
-                "monitoring_available": bool(mock_detected_data["hooks"]),
-            }
-            await agent.storage.store_capabilities(capabilities)
         
         with patch.object(agent, '_detect_capabilities', side_effect=mock_detect_capabilities):
             await agent.start()
@@ -161,25 +152,6 @@ class TestAgentIntegration:
         assert test_model["architecture"] == "LlamaForCausalLM"
         assert test_model["format"] == "pytorch"
         assert "vllm" in test_model["framework_compatible"]
-    
-    @pytest.mark.asyncio
-    async def test_capabilities_detection(self, agent):
-        """Test comprehensive capabilities detection."""
-        capabilities = await agent.get_capabilities()
-        
-        # Should include framework information
-        assert "frameworks" in capabilities
-        
-        # Should include GPU count (may be 0 in test environment)
-        assert "gpu_count" in capabilities
-        assert isinstance(capabilities["gpu_count"], int)
-        assert capabilities["gpu_count"] >= 0
-        
-        # Should include basic agent configuration
-        assert "agent_type" in capabilities
-        assert "max_concurrent_jobs" in capabilities
-        assert capabilities["agent_type"] == "white_box"
-        assert capabilities["max_concurrent_jobs"] == 1
     
     @pytest.mark.asyncio
     async def test_agent_status_reporting(self, agent):
@@ -334,19 +306,13 @@ class TestAgentIntegration:
     @pytest.mark.asyncio
     async def test_storage_integration(self, agent):
         """Test agent storage integration."""
-        # Test capabilities storage
-        capabilities = await agent.get_capabilities()
-        assert capabilities is not None
-        
         # Test system info storage
         system_info = await agent.get_system_info()
         assert system_info is not None
         
         # Verify storage is working by checking consistency
-        capabilities2 = await agent.get_capabilities()
         system_info2 = await agent.get_system_info()
         
-        assert capabilities == capabilities2
         assert system_info == system_info2
     
     @pytest.mark.asyncio
@@ -392,7 +358,7 @@ class TestAgentStatusTransitions:
         """Create minimal agent settings for status testing."""
         return Settings(
             agent_type=AgentType.WHITE_BOX,
-            model_cache_dir="/tmp/test-models",
+            model_path="/tmp/test-models",
             max_concurrent_jobs=1,
             enable_gpu_monitoring=False
         )
@@ -567,7 +533,7 @@ class TestEndToEndScenarios:
         """Test complete flow from model discovery to job execution attempt."""
         # Setup agent with models
         settings = Settings(
-            model_cache_dir=temp_models_dir,
+            model_path=temp_models_dir,
             enable_gpu_monitoring=False
         )
         storage = InMemoryStorage()
@@ -597,16 +563,8 @@ class TestEndToEndScenarios:
                 "metrics": [{"name": "latency"}, {"name": "memory_usage"}]
             }
             
-            # Store system info and capabilities
+            # Store system info
             await agent.storage.store_system_info(mock_detected_data)
-            capabilities = {
-                "agent_type": "white_box",
-                "gpu_count": len(mock_detected_data["gpus"]),
-                "frameworks": [f["name"] for f in mock_detected_data["frameworks"]],
-                "max_concurrent_jobs": agent.settings.max_concurrent_jobs,
-                "monitoring_available": bool(mock_detected_data["hooks"]),
-            }
-            await agent.storage.store_capabilities(capabilities)
         
         with patch.object(agent, '_detect_capabilities', side_effect=mock_detect_capabilities):
             await agent.start()

@@ -49,12 +49,6 @@ class TestAgent:
         assert agent1.agent_name != agent2.agent_name
 
     @pytest.mark.asyncio
-    async def test_get_capabilities_empty(self, agent):
-        """Test getting capabilities when empty."""
-        capabilities = await agent.get_capabilities()
-        assert capabilities == {}
-
-    @pytest.mark.asyncio
     async def test_get_system_info_empty(self, agent):
         """Test getting system info when empty."""
         system_info = await agent.get_system_info()
@@ -74,41 +68,7 @@ class TestAgent:
 
     @pytest.mark.asyncio
     @patch('ruckus_agent.core.agent.AgentDetector')
-    async def test_detect_capabilities(self, mock_detector_class, agent):
-        """Test capability detection."""
-        # Mock the detector
-        mock_detector = Mock()
-        mock_detector_class.return_value = mock_detector
-        
-        mock_detected_data = {
-            "system": {"hostname": "test", "os": "Linux"},
-            "cpu": {"cores": 4},
-            "gpus": [{"name": "Tesla", "memory_mb": 8000}],
-            "frameworks": [{"name": "pytorch", "version": "2.0"}],
-            "models": [],
-            "hooks": [{"name": "nvidia-smi"}],
-            "metrics": [{"name": "latency"}]
-        }
-        mock_detector.detect_all = AsyncMock(return_value=mock_detected_data)
-        
-        # Call the method
-        await agent._detect_capabilities()
-        
-        # Verify storage was updated
-        system_info = await agent.get_system_info()
-        capabilities = await agent.get_capabilities()
-        
-        assert system_info["system"]["hostname"] == "test"
-        assert system_info["cpu"]["cores"] == 4
-        assert len(system_info["gpus"]) == 1
-        
-        assert capabilities["agent_type"] == "white_box"
-        assert capabilities["gpu_count"] == 1
-        assert "pytorch" in capabilities["frameworks"]
-        assert capabilities["monitoring_available"] is True
-
-    @pytest.mark.asyncio
-    async def test_storage_integration(self, agent):
+    async def test_storage_integration(self, mock_detector, agent):
         """Test agent storage integration."""
         # Store some data directly in storage
         test_system_info = {
@@ -121,20 +81,9 @@ class TestAgent:
             "metrics": []
         }
         
-        test_capabilities = {
-            "agent_type": "gray_box",
-            "gpu_count": 0,
-            "frameworks": [],
-            "max_concurrent_jobs": 1,
-            "monitoring_available": False
-        }
-        
         await agent.storage.store_system_info(test_system_info)
-        await agent.storage.store_capabilities(test_capabilities)
         
         # Verify agent can retrieve it
         retrieved_system = await agent.get_system_info()
-        retrieved_capabilities = await agent.get_capabilities()
         
         assert retrieved_system == test_system_info
-        assert retrieved_capabilities == test_capabilities

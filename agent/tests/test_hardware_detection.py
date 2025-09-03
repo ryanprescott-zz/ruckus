@@ -260,7 +260,7 @@ class TestHardwareDetection:
         """
         from ruckus_agent.core.config import settings
         
-        models_dir = settings.model_cache_dir
+        models_dir = settings.model_path
         
         if not os.path.exists(models_dir):
             pytest.skip(f"Models directory not found: {models_dir} - volume mount may not be configured")
@@ -379,14 +379,14 @@ class TestEnvironmentValidation:
         from ruckus_agent.core.config import settings
         
         print("✅ Environment Variables Check:")
-        print(f"   Model Cache Dir: {settings.model_cache_dir}")
+        print(f"   Model Path: {settings.model_path}")
         print(f"   Agent Type: {settings.agent_type}")
         print(f"   Max Concurrent Jobs: {settings.max_concurrent_jobs}")
         print(f"   vLLM Enabled: {settings.enable_vllm}")
         print(f"   GPU Monitoring: {settings.enable_gpu_monitoring}")
         
         # Validate critical settings
-        assert os.path.isabs(settings.model_cache_dir), "Model cache dir should be absolute path"
+        assert os.path.isabs(settings.model_path), "Model path should be absolute path"
         assert settings.max_concurrent_jobs > 0, "Max concurrent jobs should be positive"
     
     @pytest.mark.asyncio
@@ -402,7 +402,7 @@ class TestEnvironmentValidation:
         print("🔍 Agent Readiness Assessment:")
         
         # 1. Check model directory and discovered models
-        discovery = ModelDiscovery(settings.model_cache_dir)
+        discovery = ModelDiscovery(settings.model_path)
         models = await discovery.discover_all_models()
         
         print(f"   📁 Models: {len(models)} discovered")

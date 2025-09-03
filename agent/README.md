@@ -1,6 +1,6 @@
 # RUCKUS Agent
 
-Worker agent component for the RUCKUS distributed benchmarking system. The agent automatically detects system capabilities and provides detailed system information through REST APIs.
+Worker agent component for the RUCKUS distributed benchmarking system. The agent automatically detects system information and provides detailed data through REST APIs.
 
 ## Features
 
@@ -112,14 +112,6 @@ Returns detailed system information including new GPU benchmarking data:
       {"name": "transformers", "version": "4.21.0", "gpu_support": true}
     ],
     "metrics": ["latency", "throughput", "memory_usage", "gpu_utilization"]
-  },
-  "capabilities": {
-    "gpu_count": 1,
-    "frameworks": ["pytorch", "transformers"],
-    "max_concurrent_jobs": 2,
-    "monitoring_available": true,
-    "supports_multi_run_jobs": true,
-    "gpu_benchmarking_available": true
   }
 }
 ```

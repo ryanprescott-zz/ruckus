@@ -344,23 +344,6 @@ class TestVLLMAdapter:
         assert info["format"] == "safetensors"
         assert info["framework_compatible"] == ["vllm", "transformers", "pytorch"]
     
-    def test_get_capabilities(self, vllm_adapter):
-        """Test getting vLLM capabilities."""
-        capabilities = vllm_adapter.get_capabilities()
-        
-        expected_capabilities = {
-            "streaming": True,
-            "batch_processing": True,
-            "continuous_batching": True,
-            "tokenization": True,
-            "quantization": True,
-            "tensor_parallel": True,
-            "paged_attention": True,
-            "dynamic_batching": True,
-        }
-        
-        assert capabilities == expected_capabilities
-    
     @pytest.mark.asyncio
     async def test_get_metrics_no_model(self, vllm_adapter):
         """Test getting metrics when no model is loaded."""

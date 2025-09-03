@@ -19,7 +19,7 @@ class VLLMAdapter(ModelAdapter):
         self.model_name = None
         self.model_path = None
         self.model_info = None
-        self.discovery = ModelDiscovery(settings.model_cache_dir)
+        self.discovery = ModelDiscovery(settings.model_path)
         logger.info("VLLMAdapter initialized")
 
     async def load_model(self, model_name: str, **kwargs) -> None:

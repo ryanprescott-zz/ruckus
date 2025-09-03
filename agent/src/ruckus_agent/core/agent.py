@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import uuid
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
@@ -86,20 +87,10 @@ class Agent:
             }
             await self.storage.store_system_info(system_info)
             
-            # Store simplified capabilities for internal use
-            capabilities = {
-                "agent_type": self.settings.agent_type.value,
-                "gpu_count": len(detected.get("gpus", [])),
-                "frameworks": [f["name"] for f in detected.get("frameworks", [])],
-                "max_concurrent_jobs": self.settings.max_concurrent_jobs,
-                "monitoring_available": bool(detected.get("hooks", [])),
-            }
-            await self.storage.store_capabilities(capabilities)
-            
-            logger.info(f"Agent {self.agent_id} capabilities detected successfully")
-            logger.debug(f"Detected {capabilities['gpu_count']} GPUs, {len(capabilities['frameworks'])} frameworks")
+            logger.info(f"Agent {self.agent_id} system detection completed successfully")
+            logger.debug(f"Detected {len(detected.get('gpus', []))} GPUs, {len(detected.get('frameworks', []))} frameworks")
         except Exception as e:
-            logger.error(f"Agent {self.agent_id} capability detection failed: {e}")
+            logger.error(f"Agent {self.agent_id} system detection failed: {e}")
             raise
 
 
@@ -165,7 +156,7 @@ class Agent:
                     experiment_id=job.experiment_id,
                     error=e,
                     model_name=job.model,
-                    model_path=f"/ruckus/models/{job.model}",  # TODO: Get actual path
+                    model_path=str(Path(self.settings.model_path) / job.model),
                     framework=job.framework,
                     task_type=job.task_type.value,
                     parameters=job.parameters,
@@ -656,9 +647,6 @@ class Agent:
         return cleanup_actions
 
     
-    async def get_capabilities(self) -> Dict:
-        """Get agent capabilities."""
-        return await self.storage.get_capabilities()
 
     async def get_system_info(self) -> Dict:
         """Get detailed system info for /info endpoint."""

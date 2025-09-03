@@ -9,8 +9,7 @@ from typing import List, Dict, Any, Optional
 
 from .models import (
     GPUInfo, CPUInfo, SystemInfo,
-    FrameworkInfo, ModelInfo, HookInfo,
-    MetricCapability
+    FrameworkInfo, ModelInfo, HookInfo
 )
 from ..utils.model_discovery import ModelDiscovery
 from .config import settings
@@ -429,7 +428,7 @@ class AgentDetector:
         
         try:
             # Use configured model cache directory
-            discovery = ModelDiscovery(settings.model_cache_dir)
+            discovery = ModelDiscovery(settings.model_path)
             models_info = await discovery.discover_all_models()
             
             # Convert ModelInfo objects to dictionaries for storage/transmission

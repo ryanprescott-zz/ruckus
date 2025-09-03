@@ -41,16 +41,7 @@ def test_agent(settings, storage):
             "metrics": [{"name": "latency"}, {"name": "throughput"}]
         }
         
-        test_capabilities = {
-            "agent_type": "white_box",
-            "gpu_count": 1,
-            "frameworks": ["pytorch"],
-            "max_concurrent_jobs": 1,
-            "monitoring_available": True
-        }
-        
         await storage.store_system_info(test_system_info)
-        await storage.store_capabilities(test_capabilities)
         
         return agent
     
@@ -96,7 +87,7 @@ class TestAgentAPI:
         assert "version" in data
         assert "agent_id" in data
 
-def test_info_endpoint(self, client, test_agent):
+    def test_info_endpoint(self, client, test_agent):
         """Test the info endpoint."""
         response = client.get("/api/v1/info")
         assert response.status_code == 200
@@ -114,20 +105,9 @@ def test_info_endpoint(self, client, test_agent):
         assert len(system_info["gpus"]) == 1
         assert system_info["gpus"][0]["name"] == "Tesla"
         
-        # Check capabilities structure
-        capabilities = agent_info["capabilities"]
-        assert capabilities["agent_type"] == "white_box"
-        assert capabilities["gpu_count"] == 1
-        assert "pytorch" in capabilities["frameworks"]
-        assert capabilities["monitoring_available"] is True
-
-    def test_capabilities_endpoint(self, client):
-        """Test the capabilities endpoint (legacy)."""
-        response = client.get("/api/v1/capabilities")
-        assert response.status_code == 200
-        
-        data = response.json()
-        assert isinstance(data, dict)
+        # Verify frameworks are present in system_info
+        assert len(system_info["frameworks"]) == 1
+        assert system_info["frameworks"][0]["name"] == "pytorch"
 
     def test_status_endpoint(self, client, test_agent):
         """Test the status endpoint."""
@@ -142,7 +122,7 @@ def test_info_endpoint(self, client, test_agent):
 
     def test_api_response_models(self, client):
         """Test that API responses match expected Pydantic models."""
-# Test info endpoint response model
+        # Test info endpoint response model
         info_response = client.get("/api/v1/info")
         assert info_response.status_code == 200
         info_data = info_response.json()
@@ -151,7 +131,7 @@ def test_info_endpoint(self, client, test_agent):
         assert "agent_info" in info_data
         agent_info = info_data["agent_info"]
         
-        required_info_fields = ["agent_id", "agent_type", "system_info", "capabilities", "last_updated"]
+        required_info_fields = ["agent_id", "agent_type", "system_info", "last_updated"]
         for field in required_info_fields:
             assert field in agent_info
 

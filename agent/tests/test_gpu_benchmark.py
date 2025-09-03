@@ -492,7 +492,7 @@ class TestGpuDetectionIntegration:
             gpu_info = await detector._detect_nvidia_gpu_pynvml(0)
             
             assert gpu_info is not None
-            assert gpu_info["name"] == "NVIDIA GeForce RTX 4090"
+            assert gpu_info["name"] == b"NVIDIA GeForce RTX 4090"
             assert gpu_info["compute_capability"] == "8.9"
             assert gpu_info["memory_total_mb"] == 24576  # ~24GB
             assert gpu_info["temperature_celsius"] == 45

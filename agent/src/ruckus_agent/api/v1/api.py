@@ -20,7 +20,6 @@ async def api_info():
         "type": "agent",
         "endpoints": [
             "/info",
-            "/capabilities",
             "/execute",
             "/status",
             "/errors",
@@ -35,25 +34,16 @@ async def get_agent_info(request: Request):
     """Get detailed agent system information."""
     agent = request.app.state.agent
     system_info = await agent.get_system_info()
-    capabilities = await agent.get_capabilities()
     
     agent_info = AgentInfo(
         agent_id=agent.agent_id,
         agent_name=agent.agent_name,
         agent_type=agent.settings.agent_type,
-        system_info=system_info,
-        capabilities=capabilities
+        system_info=system_info
     )
     
     response = AgentInfoResponse(agent_info=agent_info)
     return response
-
-
-@router.get("/capabilities")
-async def get_capabilities(request: Request):
-    """Get agent capabilities."""
-    agent = request.app.state.agent
-    return await agent.get_capabilities()
 
 
 @router.post("/execute")

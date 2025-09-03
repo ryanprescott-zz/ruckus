@@ -557,14 +557,6 @@ def create_test_agent_with_mocked_hardware(hardware_manager: HardwareMockManager
         "metrics": ["latency", "throughput", "memory", "gpu_utilization"]
     }
     
-    capabilities = {
-        "agent_type": settings.agent_type.value,
-        "gpu_count": len(hardware_manager.gpus),
-        "frameworks": list(hardware_manager.frameworks.keys()),
-        "max_concurrent_jobs": settings.max_concurrent_jobs,
-        "monitoring_available": "nvidia-smi" in hardware_manager.monitoring_tools
-    }
-    
     # Store in agent's storage (synchronous - for testing)
     import asyncio
     loop = asyncio.new_event_loop()
@@ -572,7 +564,6 @@ def create_test_agent_with_mocked_hardware(hardware_manager: HardwareMockManager
     
     try:
         loop.run_until_complete(agent.storage.store_system_info(system_info))
-        loop.run_until_complete(agent.storage.store_capabilities(capabilities))
     finally:
         loop.close()
     

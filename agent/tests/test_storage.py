@@ -29,24 +29,6 @@ class TestInMemoryStorage:
         assert retrieved == system_info
         assert retrieved is not system_info  # Should be a copy
 
-    async def test_capabilities_storage(self):
-        """Test storing and retrieving capabilities."""
-        storage = InMemoryStorage()
-        
-        capabilities = {
-            "agent_type": "white_box",
-            "gpu_count": 2,
-            "frameworks": ["pytorch", "transformers"],
-            "max_concurrent_jobs": 1,
-            "monitoring_available": True
-        }
-        
-        await storage.store_capabilities(capabilities)
-        retrieved = await storage.get_capabilities()
-        
-        assert retrieved == capabilities
-        assert retrieved is not capabilities  # Should be a copy
-
     async def test_last_seen_tracking(self):
         """Test last seen timestamp tracking."""
         storage = InMemoryStorage()
@@ -63,12 +45,12 @@ class TestInMemoryStorage:
         assert last_seen is not None
         assert before <= last_seen <= after
 
+    @pytest.mark.asyncio
     async def test_empty_storage_returns_empty_dicts(self):
         """Test that empty storage returns empty dicts."""
         storage = InMemoryStorage()
         
         assert await storage.get_system_info() == {}
-        assert await storage.get_capabilities() == {}
 
     async def test_storage_isolation(self):
         """Test that multiple storage instances are isolated."""
