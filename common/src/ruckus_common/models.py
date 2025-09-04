@@ -1,7 +1,7 @@
 """Shared data models for RUCKUS system."""
 
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import hashlib
@@ -291,6 +291,7 @@ class ExperimentSpec(TimestampedModel):
     framework: FrameworkSpec
     metrics: MetricsSpec
 
+    @computed_field
     @property
     def id(self) -> str:
         """Generate a short experiment ID based on the name."""

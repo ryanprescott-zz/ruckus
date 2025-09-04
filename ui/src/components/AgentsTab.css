@@ -173,7 +173,8 @@
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  min-height: 200px;
+  min-height: 180px;
+  max-height: 25vh; /* Limit detail section height */
   box-shadow: var(--shadow-secondary);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -484,6 +485,9 @@
   box-shadow: var(--shadow-primary);
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0; /* Prevent table from shrinking when details panel appears */
+  max-height: 40vh; /* Limit table height to ensure details panel fits */
+  overflow-y: auto; /* Allow table to scroll if needed */
 }
 
 .agents-table-container:hover {

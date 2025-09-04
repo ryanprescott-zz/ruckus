@@ -313,14 +313,14 @@ const AgentsTab: React.FC = () => {
             <h3>Agent</h3>
             <textarea
               readOnly
-              value={formatAgentDetails('Agent', {
-                agent_id: selectedAgent.agent_id,
-                agent_name: selectedAgent.agent_name,
-                agent_type: selectedAgent.agent_type,
-                last_updated: selectedAgent.last_updated,
-                agent_url: selectedAgent.agent_url,
-                registered_at: selectedAgent.registered_at
-              })}
+              value={[
+                `Agent Id: ${selectedAgent.agent_id}`,
+                `Agent Name: ${selectedAgent.agent_name || 'N/A'}`,
+                `Agent Type: ${selectedAgent.agent_type}`,
+                `Last Updated: ${formatTimestamp(selectedAgent.last_updated)}`,
+                `Agent Url: ${selectedAgent.agent_url}`,
+                `Registered At: ${formatTimestamp(selectedAgent.registered_at)}`
+              ].join('\n')}
             />
           </div>
 
@@ -328,7 +328,11 @@ const AgentsTab: React.FC = () => {
             <h3>System</h3>
             <textarea
               readOnly
-              value={formatAgentDetails('System Information', selectedAgent.system_info)}
+              value={formatAgentDetails('System Information', {
+                system: selectedAgent.system_info?.system,
+                cpu: selectedAgent.system_info?.cpu,
+                gpus: selectedAgent.system_info?.gpus
+              })}
             />
           </div>
 
@@ -336,7 +340,7 @@ const AgentsTab: React.FC = () => {
             <h3>Models</h3>
             <textarea
               readOnly
-              value={formatAgentDetails('Available Models', selectedAgent.capabilities.models || {})}
+              value={formatAgentDetails('Available Models', selectedAgent.system_info?.models || {})}
             />
           </div>
 
@@ -344,7 +348,7 @@ const AgentsTab: React.FC = () => {
             <h3>Frameworks</h3>
             <textarea
               readOnly
-              value={formatAgentDetails('Supported Frameworks', selectedAgent.capabilities.frameworks || {})}
+              value={formatAgentDetails('Supported Frameworks', selectedAgent.system_info?.frameworks || {})}
             />
           </div>
         </div>

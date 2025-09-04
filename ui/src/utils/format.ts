@@ -41,7 +41,7 @@ export function formatTimestamp(isoString: string): string {
 }
 
 /**
- * Format agent details for display in text areas with simple key-value format
+ * Format agent details for display in text areas with complete nested content
  */
 export function formatAgentDetails(
   _title: string, 
@@ -52,17 +52,23 @@ export function formatAgentDetails(
   }
   
   try {
-    // Create simple key-value format
+    // Create complete nested format
     const entries = Object.entries(data);
     
-    // Format each entry as simple key-value pairs
+    // Format each entry with full recursive content
     const formattedEntries = entries.map(([key, value]) => {
       const fieldName = formatFieldName(key);
-      const fieldValue = formatFieldValue(value);
+      const fieldValue = formatFieldValue(value, '');
+      
+      // If the value contains newlines (nested content), format it properly
+      if (fieldValue.includes('\n')) {
+        return `${fieldName}:\n  ${fieldValue.replace(/\n/g, '\n  ')}`;
+      }
+      
       return `${fieldName}: ${fieldValue}`;
     });
     
-    return formattedEntries.join('\n');
+    return formattedEntries.join('\n\n');
   } catch (error) {
     return `Error formatting data: ${error}`;
   }
@@ -80,31 +86,51 @@ function formatFieldName(key: string): string {
 }
 
 /**
- * Format field values for display
+ * Format field values for display - shows complete content recursively
  */
-function formatFieldValue(value: any): string {
+function formatFieldValue(value: any, indent: string = ''): string {
   if (value === null || value === undefined) {
     return 'N/A';
   }
   
   if (typeof value === 'object') {
     if (Array.isArray(value)) {
-      return value.length > 0 ? value.join(', ') : 'None';
+      if (value.length === 0) {
+        return 'None';
+      }
+      
+      // For arrays of primitives, join with commas
+      if (value.every(item => typeof item !== 'object')) {
+        return value.join(', ');
+      }
+      
+      // For arrays of objects, format each item on its own line
+      return value.map((item, index) => {
+        const itemValue = formatFieldValue(item, indent + '  ');
+        return `${indent}[${index}]: ${itemValue}`;
+      }).join('\n');
     }
     
-    // For nested objects, show a summary or key info
+    // For objects, show all key-value pairs
     const keys = Object.keys(value);
     if (keys.length === 0) {
       return 'Empty';
     }
     
-    // For small objects, show key-value pairs inline
-    if (keys.length <= 3) {
-      return keys.map(k => `${k}: ${value[k]}`).join(', ');
-    }
+    // Format all keys and values with proper indentation
+    const entries = keys.map(key => {
+      const fieldName = formatFieldName(key);
+      const fieldValue = formatFieldValue(value[key], indent + '  ');
+      
+      // If the value contains newlines, format it properly
+      if (fieldValue.includes('\n')) {
+        return `${indent}${fieldName}:\n${indent}  ${fieldValue.replace(/\n/g, '\n' + indent + '  ')}`;
+      }
+      
+      return `${indent}${fieldName}: ${fieldValue}`;
+    });
     
-    // For larger objects, show count
-    return `${keys.length} items: ${keys.slice(0, 2).join(', ')}...`;
+    return entries.join('\n');
   }
   
   if (typeof value === 'boolean') {

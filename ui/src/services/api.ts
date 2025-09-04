@@ -11,6 +11,11 @@ import type {
   GetAgentInfoResponse,
   ListAgentStatusResponse,
   GetAgentStatusResponse,
+  CreateExperimentRequest,
+  CreateExperimentResponse,
+  DeleteExperimentResponse,
+  ListExperimentsResponse,
+  GetExperimentResponse,
 } from '../types/api';
 
 // Configuration
@@ -112,6 +117,28 @@ export class RuckusApiClient {
 
   async getAgentStatus(agentId: string): Promise<GetAgentStatusResponse> {
     return this.request<GetAgentStatusResponse>(`/agents/${agentId}/status`);
+  }
+
+  // Experiment endpoints
+  async listExperiments(): Promise<ListExperimentsResponse> {
+    return this.request<ListExperimentsResponse>('/experiments/');
+  }
+
+  async getExperiment(experimentId: string): Promise<GetExperimentResponse> {
+    return this.request<GetExperimentResponse>(`/experiments/${experimentId}`);
+  }
+
+  async createExperiment(request: CreateExperimentRequest): Promise<CreateExperimentResponse> {
+    return this.request<CreateExperimentResponse>('/experiments/', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteExperiment(experimentId: string): Promise<DeleteExperimentResponse> {
+    return this.request<DeleteExperimentResponse>(`/experiments/${experimentId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

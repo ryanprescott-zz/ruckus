@@ -93,3 +93,114 @@ export interface AgentTableRow {
   unregister: string; // For the unregister action column
   agent: RegisteredAgentInfo; // Full agent data for details panel
 }
+
+// Experiment related types
+export const TaskType = {
+  LLM_GENERATION: "llm_generation"
+} as const;
+
+export type TaskType = typeof TaskType[keyof typeof TaskType];
+
+export const FrameworkName = {
+  PYTORCH: "pytorch",
+  TRANSFORMERS: "transformers", 
+  VLLM: "vllm",
+  TENSORRT: "tensorrt",
+  ONNX: "onnx",
+  TRITON: "triton",
+  UNKNOWN: "unknown"
+} as const;
+
+export type FrameworkName = typeof FrameworkName[keyof typeof FrameworkName];
+
+export const PromptRole = {
+  SYSTEM: "system",
+  USER: "user", 
+  ASSISTANT: "assistant"
+} as const;
+
+export type PromptRole = typeof PromptRole[keyof typeof PromptRole];
+
+export interface PromptMessage {
+  role: PromptRole;
+  content: string;
+}
+
+export interface PromptTemplate {
+  messages: PromptMessage[];
+  extra_body?: Record<string, any>;
+}
+
+export interface LLMGenerationParams {
+  prompt_template: PromptTemplate;
+}
+
+export interface TaskSpec {
+  name: string;
+  type: TaskType;
+  description?: string;
+  params: any; // This can be LLMGenerationParams or other types
+}
+
+export interface FrameworkSpec {
+  name: FrameworkName;
+  params: any;
+}
+
+export interface MetricsSpec {
+  metrics: Record<string, any>;
+}
+
+export interface ExperimentSpec {
+  name: string;
+  description?: string;
+  model: string;
+  task: TaskSpec;
+  framework: FrameworkSpec;
+  metrics: MetricsSpec;
+  created_at?: string;
+  updated_at?: string;
+  // Computed field - always present in API responses
+  id: string;
+}
+
+// API Request/Response models for experiments
+export interface CreateExperimentSpec {
+  name: string;
+  description?: string;
+  model: string;
+  task: TaskSpec;
+  framework: FrameworkSpec;
+  metrics: MetricsSpec;
+}
+
+export interface CreateExperimentRequest {
+  experiment_spec: CreateExperimentSpec;
+}
+
+export interface CreateExperimentResponse {
+  experiment_id: string;
+  created_at: string;
+}
+
+export interface DeleteExperimentResponse {
+  experiment_id: string;
+  deleted_at: string;
+}
+
+export interface ListExperimentsResponse {
+  experiments: ExperimentSpec[];
+}
+
+export interface GetExperimentResponse {
+  experiment: ExperimentSpec;
+}
+
+export interface ExperimentTableRow {
+  id: string;
+  name: string;
+  jobs: string; // Will be populated later
+  created: string; // Formatted timestamp
+  remove: string; // For the remove action column
+  experiment: ExperimentSpec; // Full experiment data
+}

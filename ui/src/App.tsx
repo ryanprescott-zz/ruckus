@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './App.css'
 import AgentsTab from './components/AgentsTab'
+import ExperimentsTab from './components/ExperimentsTab'
 import SettingsMenu from './components/SettingsMenu'
 import { ThemeProvider } from './contexts/ThemeContext'
 
@@ -19,7 +20,7 @@ function App() {
       case 'agents':
         return <AgentsTab />
       case 'experiments':
-        return <div className="tab-placeholder">Experiments tab coming soon</div>
+        return <ExperimentsTab />
       case 'jobs':
         return <div className="tab-placeholder">Jobs tab coming soon</div>
       case 'results':
