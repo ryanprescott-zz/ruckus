@@ -7,7 +7,7 @@ from datetime import datetime
 from ruckus_common.models import AgentCapabilitiesBase
 from ..models import RegisterAgentRequest, RegisterAgentResponse, UnregisterAgentRequest, UnregisterAgentResponse, ListAgentInfoResponse, GetAgentInfoResponse, ListAgentStatusResponse, GetAgentStatusResponse
 from ruckus_server.core.clients.http import ConnectionError, ServiceUnavailableError
-from ruckus_server.core.server import AgentAlreadyRegisteredException, AgentNotRegisteredException
+from ruckus_server.core.agent_manager import AgentAlreadyRegisteredException, AgentNotRegisteredException
 
 router = APIRouter()
 
@@ -26,13 +26,13 @@ async def register_agent(request_data: RegisterAgentRequest, request: Request):
     Raises:
         HTTPException: 400 for invalid URLs, 404 for connection errors, 503 for unavailable agents
     """
-    server = request.app.state.server
-    if not server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
     
     try:
-        # Call the RuckusServer register_agent method
-        registration_result = await server.register_agent(request_data.agent_url)
+        # Call the AgentManager register_agent method
+        registration_result = await agent_manager.register_agent(request_data.agent_url)
         
         # Return success response
         return RegisterAgentResponse(
@@ -80,13 +80,13 @@ async def unregister_agent(request_data: UnregisterAgentRequest, request: Reques
     Raises:
         HTTPException: 404 if agent not found, 503 if server not initialized, 500 for other errors
     """
-    server = request.app.state.server
-    if not server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
     
     try:
         # Call the RuckusServer unregister_agent method
-        unregistration_result = await server.unregister_agent(request_data.agent_id)
+        unregistration_result = await agent_manager.unregister_agent(request_data.agent_id)
         
         # Return success response
         return UnregisterAgentResponse(
@@ -118,13 +118,13 @@ async def list_agents(request: Request):
     Raises:
         HTTPException: 503 if server not initialized, 500 for other errors
     """
-    server = request.app.state.server
-    if not server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
     
     try:
         # Get all registered agent info from the server
-        agents = await server.list_registered_agent_info()
+        agents = await agent_manager.list_registered_agent_info()
         
         # Return response with list of agents
         return ListAgentInfoResponse(agents=agents)
@@ -148,13 +148,13 @@ async def get_agent_info(agent_id: str, request: Request):
     Raises:
         HTTPException: 404 if agent not found, 503 if server not initialized, 500 for other errors
     """
-    server = request.app.state.server
-    if not server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
     
     try:
         # Get registered agent info from the server
-        agent_info = await server.get_registered_agent_info(agent_id)
+        agent_info = await agent_manager.get_registered_agent_info(agent_id)
         
         # Return response with agent info
         return GetAgentInfoResponse(agent=agent_info)
@@ -183,13 +183,13 @@ async def list_agent_status(request: Request):
     Raises:
         HTTPException: 503 if server not initialized, 500 for other errors
     """
-    server = request.app.state.server
-    if not server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
     
     try:
         # Get status of all registered agents from the server
-        agent_statuses = await server.list_registered_agent_status()
+        agent_statuses = await agent_manager.list_registered_agent_status()
         
         # Return response with list of agent statuses
         return ListAgentStatusResponse(agents=agent_statuses)
@@ -213,13 +213,13 @@ async def get_agent_status(agent_id: str, request: Request):
     Raises:
         HTTPException: 404 if agent not found, 503 if server not initialized, 500 for other errors
     """
-    server = request.app.state.server
-    if not server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
     
     try:
         # Get status of the specified agent from the server
-        agent_status = await server.get_registered_agent_status(agent_id)
+        agent_status = await agent_manager.get_registered_agent_status(agent_id)
         
         # Return response with agent status
         return GetAgentStatusResponse(agent=agent_status)

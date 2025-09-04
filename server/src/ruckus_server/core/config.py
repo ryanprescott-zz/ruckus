@@ -122,18 +122,28 @@ class HttpClientSettings(BaseSettings):
         case_sensitive = False
         
 
-class RuckusServerSettings(BaseSettings):
-    """RuckusServer configuration settings containing everything it needs."""
+class StorageSettings(BaseSettings):
+    """Storage backend configuration settings."""
     
-    host: str = Field(default="0.0.0.0", description="Server host address")
-    port: int = Field(default=8000, description="Server port")
-    debug: bool = Field(default=False, description="Enable debug mode")
-    
-    # Storage backend configuration
     storage_backend: StorageBackendType = Field(
         default=StorageBackendType.SQLITE,
         description="Storage backend type"
     )
+    postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
+    sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
+    
+    class Config:
+        env_prefix = "RUCKUS_STORAGE_"
+        env_file = ".env"
+        case_sensitive = False
+
+
+class AgentManagerSettings(BaseSettings):
+    """Agent manager configuration settings containing everything it needs."""
+    
+    host: str = Field(default="0.0.0.0", description="Server host address")
+    port: int = Field(default=8000, description="Server port")
+    debug: bool = Field(default=False, description="Enable debug mode")
     
     # Logging configuration
     log_level: str = Field(default="INFO", description="Logging level")
@@ -142,16 +152,13 @@ class RuckusServerSettings(BaseSettings):
         description="Path to logging configuration file"
     )
     
-    # Storage backend settings
-    postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
-    sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
-    
-    # Agent and HTTP client settings
+    # Component settings
+    storage: StorageSettings = Field(default_factory=StorageSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
     
     class Config:
-        env_prefix = "RUCKUS_SERVER_"
+        env_prefix = "RUCKUS_AGENT_MANAGER_"
         env_file = ".env"
         case_sensitive = False
 
@@ -197,12 +204,32 @@ class LoggingSettings(BaseSettings):
         case_sensitive = False
 
 
+class ExperimentManagerSettings(BaseSettings):
+    """Experiment manager configuration settings containing everything it needs."""
+    
+    # Logging configuration
+    log_level: str = Field(default="INFO", description="Logging level")
+    log_config_file: str = Field(
+        default="logging.yml",
+        description="Path to logging configuration file"
+    )
+    
+    # Component settings
+    storage: StorageSettings = Field(default_factory=StorageSettings)
+    
+    class Config:
+        env_prefix = "RUCKUS_EXPERIMENT_MANAGER_"
+        env_file = ".env"
+        case_sensitive = False
+
+
 class Settings(BaseSettings):
     """Main server settings that combines all configuration sections."""
     
     # Nested settings
     app: AppSettings = Field(default_factory=AppSettings)
-    ruckus_server: RuckusServerSettings = Field(default_factory=RuckusServerSettings)
+    agent_manager: AgentManagerSettings = Field(default_factory=AgentManagerSettings)
+    experiment_manager: ExperimentManagerSettings = Field(default_factory=ExperimentManagerSettings)
     postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
     sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)

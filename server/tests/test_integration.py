@@ -10,12 +10,22 @@ from unittest.mock import patch, AsyncMock, Mock
 import httpx
 from fastapi.testclient import TestClient
 
-from ruckus_server.core.server import RuckusServer
-from ruckus_server.core.config import RuckusServerSettings, SQLiteSettings
+from ruckus_server.core.agent_manager import AgentManager
+from ruckus_server.core.config import AgentManagerSettings, StorageSettings, StorageBackendType, SQLiteSettings
 from ruckus_common.models import AgentType, AgentStatus, AgentStatusEnum
 from ruckus_server.api.v1.api import api_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+
+def create_test_server_settings(temp_db_path: str) -> AgentManagerSettings:
+    """Helper function to create test server settings with new structure."""
+    sqlite_settings = SQLiteSettings(database_path=temp_db_path)
+    storage_settings = StorageSettings(
+        storage_backend=StorageBackendType.SQLITE,
+        sqlite=sqlite_settings
+    )
+    return AgentManagerSettings(storage=storage_settings)
 
 
 def create_test_app():
@@ -39,15 +49,11 @@ class TestAgentRegistrationIntegration:
     async def test_full_agent_registration_workflow(self, temp_db_path):
         """Test complete agent registration from API to storage."""
         # Create server with temporary database
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
         # Start server
-        server = RuckusServer(server_settings)
-        await server.start()
+        agent_manager = AgentManager(server_settings)
+        await agent_manager.start()
         
         try:
             # Mock agent responses
@@ -75,37 +81,33 @@ class TestAgentRegistrationIntegration:
                 mock_httpx_client_class.return_value = mock_httpx_client
                 
                 # Register agent
-                result = await server.register_agent("http://test-agent:8001")
+                result = await agent_manager.register_agent("http://test-agent:8001")
                 
                 # Verify registration result
                 assert "agent_id" in result
                 assert result["agent_id"] == "integration-test-agent"
                 
                 # Verify agent is in database
-                agents = await server.list_registered_agent_info()
+                agents = await agent_manager.list_registered_agent_info()
                 assert len(agents) == 1
                 assert agents[0].agent_id == "integration-test-agent"
                 
                 # Verify agent can be retrieved individually
-                agent = await server.get_registered_agent_info("integration-test-agent")
+                agent = await agent_manager.get_registered_agent_info("integration-test-agent")
                 assert agent.agent_id == "integration-test-agent"
                 assert agent.agent_url == "http://test-agent:8001"
         
         finally:
-            await server.stop()
+            await agent_manager.stop()
 
     @pytest.mark.asyncio
     async def test_agent_status_integration(self, temp_db_path):
         """Test agent status retrieval integration."""
         # Create and start server
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
-        server = RuckusServer(server_settings)
-        await server.start()
+        agent_manager = AgentManager(server_settings)
+        await agent_manager.start()
         
         try:
             # First register an agent
@@ -132,7 +134,7 @@ class TestAgentRegistrationIntegration:
                 mock_httpx_client.__aexit__ = AsyncMock(return_value=None)
                 mock_httpx_client_class.return_value = mock_httpx_client
                 
-                await server.register_agent("http://status-agent:8001")
+                await agent_manager.register_agent("http://status-agent:8001")
             
             # Now test status retrieval
             mock_status_response = {
@@ -144,44 +146,40 @@ class TestAgentRegistrationIntegration:
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
-            with patch('ruckus_server.core.server.SimpleHttpClient') as mock_simple_client_class:
+            with patch('ruckus_server.core.agent_manager.SimpleHttpClient') as mock_simple_client_class:
                 mock_simple_client = AsyncMock()
                 mock_simple_client.get_json.return_value = mock_status_response
                 mock_simple_client_class.return_value = mock_simple_client
                 
                 # Test individual agent status
-                status = await server.get_registered_agent_status("status-test-agent")
+                status = await agent_manager.get_registered_agent_status("status-test-agent")
                 assert status.agent_id == "status-test-agent"
                 assert status.status == AgentStatusEnum.IDLE
                 assert status.queued_jobs == ["job-1"]
                 
                 # Test list all agent statuses
-                statuses = await server.list_registered_agent_status()
+                statuses = await agent_manager.list_registered_agent_status()
                 assert len(statuses) == 1
                 assert statuses[0].agent_id == "status-test-agent"
         
         finally:
-            await server.stop()
+            await agent_manager.stop()
 
     def test_api_to_storage_integration(self, temp_db_path):
         """Test full API request to storage integration."""
         # Create server with temporary database
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
         # Initialize app with server
-        server = RuckusServer(server_settings)
+        agent_manager = AgentManager(server_settings)
         
         # Use asyncio to handle server lifecycle
         async def run_test():
-            await server.start()
+            await agent_manager.start()
             try:
                 # Create fresh app instance for this test
                 test_app = create_test_app()
-                test_app.state.server = server
+                test_app.state.agent_manager = agent_manager
                 
                 with TestClient(test_app) as client:
                     # Mock agent info response
@@ -234,21 +232,17 @@ class TestAgentRegistrationIntegration:
                 
                 test_app.state.server = None
             finally:
-                await server.stop()
+                await agent_manager.stop()
         
         asyncio.run(run_test())
 
     @pytest.mark.asyncio
     async def test_concurrent_agent_registration(self, temp_db_path):
         """Test concurrent agent registrations don't interfere."""
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
-        server = RuckusServer(server_settings)
-        await server.start()
+        agent_manager = AgentManager(server_settings)
+        await agent_manager.start()
         
         try:
             # Create mock responses for multiple agents
@@ -283,7 +277,7 @@ class TestAgentRegistrationIntegration:
                 
                 # Register multiple agents concurrently
                 tasks = [
-                    server.register_agent(f"http://concurrent-agent-{base_timestamp}-{i}:8001")
+                    agent_manager.register_agent(f"http://concurrent-agent-{base_timestamp}-{i}:8001")
                     for i in range(5)
                 ]
                 
@@ -296,11 +290,11 @@ class TestAgentRegistrationIntegration:
                 assert set(agent_ids) == set(expected_ids)
                 
                 # Verify all agents are in storage
-                stored_agents = await server.list_registered_agent_info()
+                stored_agents = await agent_manager.list_registered_agent_info()
                 assert len(stored_agents) == 5
         
         finally:
-            await server.stop()
+            await agent_manager.stop()
 
     @pytest.mark.asyncio
     async def test_error_handling_integration(self, temp_db_path):
@@ -308,14 +302,10 @@ class TestAgentRegistrationIntegration:
         import time
         agent_id = f"error-test-agent-{int(time.time())}"
         
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
-        server = RuckusServer(server_settings)
-        await server.start()
+        agent_manager = AgentManager(server_settings)
+        await agent_manager.start()
         
         try:
             # Test various error scenarios
@@ -330,7 +320,7 @@ class TestAgentRegistrationIntegration:
                 
                 from ruckus_server.core.clients.http import ConnectionError
                 with pytest.raises(ConnectionError):
-                    await server.register_agent("http://unreachable:8001")
+                    await agent_manager.register_agent("http://unreachable:8001")
             
             # 2. Register an agent successfully first
             mock_response = {
@@ -356,7 +346,7 @@ class TestAgentRegistrationIntegration:
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_class.return_value = mock_client
                 
-                await server.register_agent(f"http://{agent_id}:8001")
+                await agent_manager.register_agent(f"http://{agent_id}:8001")
             
             # 3. Try to register same agent again (duplicate error)
             with patch('httpx.AsyncClient') as mock_client_class:
@@ -371,27 +361,27 @@ class TestAgentRegistrationIntegration:
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_class.return_value = mock_client
                 
-                from ruckus_server.core.server import AgentAlreadyRegisteredException
+                from ruckus_server.core.agent_manager import AgentAlreadyRegisteredException
                 with pytest.raises(AgentAlreadyRegisteredException):
-                    await server.register_agent(f"http://{agent_id}:8001")
+                    await agent_manager.register_agent(f"http://{agent_id}:8001")
             
             # 4. Try to get status for non-existent agent
-            from ruckus_server.core.server import AgentNotRegisteredException
+            from ruckus_server.core.agent_manager import AgentNotRegisteredException
             with pytest.raises(AgentNotRegisteredException):
-                await server.get_registered_agent_status("non-existent-agent")
+                await agent_manager.get_registered_agent_status("non-existent-agent")
             
             # 5. Status retrieval with agent unreachable
-            with patch('ruckus_server.core.server.SimpleHttpClient') as mock_simple_client_class:
+            with patch('ruckus_server.core.agent_manager.SimpleHttpClient') as mock_simple_client_class:
                 mock_simple_client = AsyncMock()
                 mock_simple_client.get_json.return_value = None  # Simulate connection failure
                 mock_simple_client_class.return_value = mock_simple_client
                 
-                status = await server.get_registered_agent_status(agent_id)
+                status = await agent_manager.get_registered_agent_status(agent_id)
                 assert status.status == AgentStatusEnum.UNAVAILABLE
                 assert status.uptime_seconds == 0.0
         
         finally:
-            await server.stop()
+            await agent_manager.stop()
 
     def test_database_persistence_integration(self):
         """Test that data persists across server restarts."""
@@ -404,13 +394,9 @@ class TestAgentRegistrationIntegration:
                 agent_id = f"persistent-agent-{int(time.time())}"
                 
                 # First server instance - register agent
-                sqlite_settings1 = SQLiteSettings(database_path=db_path)
-                server_settings1 = RuckusServerSettings(
-                    storage_backend="sqlite",
-                    sqlite=sqlite_settings1
-                )
+                server_settings1 = create_test_server_settings(db_path)
                 
-                server1 = RuckusServer(server_settings1)
+                server1 = AgentManager(server_settings1)
                 await server1.start()
                 
                 mock_response = {
@@ -441,13 +427,9 @@ class TestAgentRegistrationIntegration:
                 await server1.stop()
                 
                 # Second server instance - verify agent still exists
-                sqlite_settings2 = SQLiteSettings(database_path=db_path)
-                server_settings2 = RuckusServerSettings(
-                    storage_backend="sqlite",
-                    sqlite=sqlite_settings2
-                )
+                server_settings2 = create_test_server_settings(db_path)
                 
-                server2 = RuckusServer(server_settings2)
+                server2 = AgentManager(server_settings2)
                 await server2.start()
                 
                 agents = await server2.list_registered_agent_info()
@@ -465,25 +447,21 @@ class TestAgentRegistrationIntegration:
     @pytest.mark.asyncio
     async def test_health_check_integration(self, temp_db_path):
         """Test health check reflects actual system state."""
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
-        server = RuckusServer(server_settings)
+        agent_manager = AgentManager(server_settings)
         
         # Test before starting
-        health = await server.health_check()
+        health = await agent_manager.health_check()
         assert health["status"] == "unhealthy"
         assert health["storage"] == "not_initialized"
         assert health["agents"] == 0
         
         # Start server and test
-        await server.start()
+        await agent_manager.start()
         
         try:
-            health = await server.health_check()
+            health = await agent_manager.health_check()
             assert health["status"] == "healthy"
             assert health["storage"] == "healthy"
             assert health["agents"] == 0
@@ -512,32 +490,28 @@ class TestAgentRegistrationIntegration:
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_class.return_value = mock_client
                 
-                await server.register_agent("http://health-test-agent:8001")
+                await agent_manager.register_agent("http://health-test-agent:8001")
             
-            health = await server.health_check()
+            health = await agent_manager.health_check()
             assert health["status"] == "healthy"
             assert health["storage"] == "healthy"
             assert health["agents"] == 1
         
         finally:
-            await server.stop()
+            await agent_manager.stop()
 
     def test_full_api_workflow_integration(self, temp_db_path):
         """Test complete API workflow from registration to status retrieval."""
-        sqlite_settings = SQLiteSettings(database_path=temp_db_path)
-        server_settings = RuckusServerSettings(
-            storage_backend="sqlite",
-            sqlite=sqlite_settings
-        )
+        server_settings = create_test_server_settings(temp_db_path)
         
-        server = RuckusServer(server_settings)
+        agent_manager = AgentManager(server_settings)
         
         async def run_workflow():
-            await server.start()
+            await agent_manager.start()
             try:
                 # Create fresh app instance for this test
                 test_app = create_test_app()
-                test_app.state.server = server
+                test_app.state.agent_manager = agent_manager
                 
                 with TestClient(test_app) as client:
                     # 1. Register agent
@@ -592,7 +566,7 @@ class TestAgentRegistrationIntegration:
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }
                     
-                    with patch('ruckus_server.core.server.SimpleHttpClient') as mock_simple_client_class:
+                    with patch('ruckus_server.core.agent_manager.SimpleHttpClient') as mock_simple_client_class:
                         mock_simple_client = AsyncMock()
                         mock_simple_client.get_json.return_value = mock_status_response
                         mock_simple_client_class.return_value = mock_simple_client
@@ -604,7 +578,7 @@ class TestAgentRegistrationIntegration:
                         assert status_data["agent"]["running_jobs"] == ["job-1", "job-2"]
                     
                     # 5. List all statuses
-                    with patch('ruckus_server.core.server.SimpleHttpClient') as mock_simple_client_class:
+                    with patch('ruckus_server.core.agent_manager.SimpleHttpClient') as mock_simple_client_class:
                         mock_simple_client = AsyncMock()
                         mock_simple_client.get_json.return_value = mock_status_response
                         mock_simple_client_class.return_value = mock_simple_client
@@ -627,6 +601,6 @@ class TestAgentRegistrationIntegration:
                 
                 test_app.state.server = None
             finally:
-                await server.stop()
+                await agent_manager.stop()
         
         asyncio.run(run_workflow())

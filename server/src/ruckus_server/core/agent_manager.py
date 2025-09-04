@@ -10,14 +10,13 @@ from urllib.parse import urljoin
 
 import yaml
 
-from .config import RuckusServerSettings, StorageBackendType
-from .storage.factory import StorageFactory
+from .config import AgentManagerSettings
+from .storage.factory import storage_factory
 from .storage.base import StorageBackend
 from ruckus_common.models import RegisteredAgentInfo, AgentStatus, AgentStatusEnum
 from .agent import AgentProtocolUtility
 from .clients.http import ConnectionError, ServiceUnavailableError
 from .clients.simple_http import SimpleHttpClient
-from .orchestrator import ExperimentOrchestrator
 
 
 class AgentAlreadyRegisteredException(Exception):
@@ -37,25 +36,24 @@ class AgentNotRegisteredException(Exception):
         super().__init__(f"Agent {agent_id} is not registered")
 
 
-class RuckusServer:
-    """RUCKUS server implementation.
+class AgentManager:
+    """Agent management implementation.
     
-    The central brain of RUCKUS, responsible for managing experiments,
-    coordinating agents, scheduling jobs, and aggregating results.
+    Responsible for managing agent registration, status monitoring,
+    and coordination of agent-related operations.
     """
     
-    def __init__(self, settings: Optional[RuckusServerSettings] = None):
-        """Initialize the RUCKUS server.
+    def __init__(self, settings: Optional[AgentManagerSettings] = None):
+        """Initialize the agent manager.
         
         Args:
             settings: Server configuration settings. If None, will load from environment.
         """
-        self.settings = settings or RuckusServerSettings()
+        self.settings = settings or AgentManagerSettings()
         self.logger = self._setup_logging()
         self.storage: Optional[StorageBackend] = None
-        self.orchestrator: Optional[ExperimentOrchestrator] = None
         
-        self.logger.info("RUCKUS server initialized")
+        self.logger.info("Agent manager initialized")
     
     def _setup_logging(self) -> logging.Logger:
         """Setup logging configuration.
@@ -90,81 +88,47 @@ class RuckusServer:
         return logging.getLogger(__name__)
     
     async def start(self) -> None:
-        """Start the RUCKUS server backend.
+        """Start the agent manager backend.
         
-        Initializes the database connection and starts background tasks
-        for agent monitoring and job scheduling.
+        Initializes the database connection.
         """
-        self.logger.info("Starting RUCKUS server backend...")
+        self.logger.info("Starting agent manager backend...")
         
         # Setup database connection
         await self._setup_database()
         
-        # Start background tasks
-        await self._start_background_tasks()
-        
-        self.logger.info("RUCKUS server backend started")
+        self.logger.info("Agent manager backend started")
     
     async def stop(self) -> None:
-        """Stop the RUCKUS server backend.
+        """Stop the agent manager backend.
         
-        Gracefully shuts down background tasks and closes database connections.
+        Closes database connections.
         """
-        self.logger.info("Stopping RUCKUS server backend...")
-        
-        # Stop background tasks
-        await self._stop_background_tasks()
+        self.logger.info("Stopping agent manager backend...")
         
         # Close database connections
         await self._cleanup_database()
         
-        self.logger.info("RUCKUS server backend stopped")
+        self.logger.info("Agent manager backend stopped")
     
     async def _setup_database(self) -> None:
         """Setup database connection and initialize schema."""
         self.logger.info("Setting up storage backend...")
         
-        # Import storage backends
-        from .storage.postgresql import PostgreSQLStorageBackend
-        from .storage.sqlite import SQLiteStorageBackend
-        
-        # Create storage backend based on configuration using the embedded settings
-        if self.settings.storage_backend == StorageBackendType.POSTGRESQL:
-            self.storage = PostgreSQLStorageBackend(self.settings.postgresql)
-        elif self.settings.storage_backend == StorageBackendType.SQLITE:
-            self.storage = SQLiteStorageBackend(self.settings.sqlite)
-        else:
-            raise ValueError(f"Unsupported storage backend: {self.settings.storage_backend}")
+        # Create storage backend using factory
+        self.storage = storage_factory.create_storage_backend(self.settings.storage)
         
         # Initialize the storage backend
         await self.storage.initialize()
         
-        # Initialize orchestrator
-        self.orchestrator = ExperimentOrchestrator(self.storage)
-        
-        self.logger.info(f"Storage backend ({self.settings.storage_backend}) initialized successfully")
+        self.logger.info(f"Storage backend ({self.settings.storage.storage_backend}) initialized successfully")
     
     async def _cleanup_database(self) -> None:
         """Cleanup database connections."""
         self.logger.info("Cleaning up storage backend...")
         if self.storage:
             await self.storage.close()
-    
-    
-    async def _start_background_tasks(self) -> None:
-        """Start background tasks for agent monitoring and job scheduling."""
-        self.logger.info("Starting background tasks...")
-        
-        # TODO: Start agent heartbeat monitoring task
-        # TODO: Start job scheduling task
-        # TODO: Start result aggregation task
-        pass
-    
-    async def _stop_background_tasks(self) -> None:
-        """Stop background tasks."""
-        self.logger.info("Stopping background tasks...")
-        # TODO: Implement graceful shutdown of background tasks
-        pass
+
     
     async def register_agent(self, agent_url: str) -> dict:
         """Register a new agent with the server.

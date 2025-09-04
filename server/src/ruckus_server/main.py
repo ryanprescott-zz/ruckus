@@ -16,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__
 from .api.v1.api import api_router
 from .core.config import Settings
-from .core.server import RuckusServer
+from .core.agent_manager import AgentManager
+from .core.experiment_manager import ExperimentManager
 
 logger = logging.getLogger(__name__)
 
@@ -29,24 +30,31 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting RUCKUS Server v{__version__}")
     
-    # Initialize RuckusServer with settings
-    ruckus_server = RuckusServer(settings.ruckus_server)
-    await ruckus_server.start()
+    # Initialize AgentManager with settings
+    agent_manager = AgentManager(settings.agent_manager)
+    await agent_manager.start()
     
-    # Make server available to the app
-    app.state.server = ruckus_server
+    # Initialize ExperimentManager with settings
+    experiment_manager = ExperimentManager(settings.experiment_manager)
+    await experiment_manager.start()
+    
+    # Make managers available to the app
+    app.state.agent_manager = agent_manager
+    app.state.experiment_manager = experiment_manager
     
     yield
     
     # Shutdown
     logger.info("Shutting down RUCKUS Server")
-    if hasattr(app.state, 'server') and app.state.server:
-        await app.state.server.stop()
+    if hasattr(app.state, 'agent_manager') and app.state.agent_manager:
+        await app.state.agent_manager.stop()
+    if hasattr(app.state, 'experiment_manager') and app.state.experiment_manager:
+        await app.state.experiment_manager.stop()
 
 
 app = FastAPI(
     title="RUCKUS Server",
-    description="Orchestrator for distributed model benchmarking",
+    description="Server for managing agents and coordinating model benchmarking tasks",
     version=__version__,
     lifespan=lifespan,
 )
@@ -66,9 +74,9 @@ async def health_check():
     Returns:
         dict: Health status information
     """
-    if hasattr(app.state, 'server') and app.state.server:
-        return await app.state.server.health_check()
-    return {"status": "unhealthy", "reason": "server_not_initialized"}
+    if hasattr(app.state, 'agent_manager') and app.state.agent_manager:
+        return await app.state.agent_manager.health_check()
+    return {"status": "unhealthy", "reason": "agent_manager_not_initialized"}
 
 
 @app.get(f"{settings.app.api_prefix}/docs", include_in_schema=False)

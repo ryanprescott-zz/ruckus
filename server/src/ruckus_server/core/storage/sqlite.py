@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from .base import StorageBackend, Base, Agent, Experiment, Job
+from .base import StorageBackend, Base, Agent, Experiment, Job, ExperimentAlreadyExistsException, ExperimentNotFoundException, ExperimentHasJobsException
 from ..config import SQLiteSettings
-from ruckus_common.models import AgentInfo, AgentType, RegisteredAgentInfo
+from ruckus_common.models import AgentInfo, AgentType, RegisteredAgentInfo, ExperimentSpec
 
 
 class SQLiteStorageBackend(StorageBackend):
@@ -232,27 +232,43 @@ class SQLiteStorageBackend(StorageBackend):
             return False
     
     # Experiment management
-    async def create_experiment(self, experiment_id: str, name: str, 
-                              description: str, config: Dict[str, Any]) -> bool:
-        """Create a new experiment."""
+    async def create_experiment(self, experiment_spec: ExperimentSpec) -> Dict[str, Any]:
+        """Create a new experiment from ExperimentSpec."""
+        
         async def _create():
             async with self.session_factory() as session:
+                # Check if experiment already exists
+                existing_stmt = select(Experiment).where(Experiment.id == experiment_spec.experiment_id)
+                result = await session.execute(existing_stmt)
+                existing_experiment = result.scalar_one_or_none()
+                
+                if existing_experiment:
+                    raise ExperimentAlreadyExistsException(experiment_spec.experiment_id)
+                
+                # Create new experiment
                 experiment = Experiment(
-                    id=experiment_id,
-                    name=name,
-                    description=description,
-                    config=config,
+                    id=experiment_spec.experiment_id,
+                    name=experiment_spec.name,
+                    description=experiment_spec.description,
+                    spec_data=experiment_spec.model_dump(mode='json'),  # Store complete ExperimentSpec as JSON
                     status="created"
                 )
                 session.add(experiment)
                 await session.commit()
-                return True
+                
+                return {
+                    "experiment_id": experiment.id,
+                    "created_at": experiment.created_at
+                }
         
         try:
             return await self._retry_operation(_create)
+        except ExperimentAlreadyExistsException:
+            # Re-raise this specific exception without wrapping
+            raise
         except Exception as e:
-            self.logger.error(f"Failed to create experiment {experiment_id}: {e}")
-            return False
+            self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+            raise
     
     async def update_experiment_status(self, experiment_id: str, status: str) -> bool:
         """Update experiment status."""
@@ -271,50 +287,58 @@ class SQLiteStorageBackend(StorageBackend):
             self.logger.error(f"Failed to update experiment {experiment_id} status: {e}")
             return False
     
-    async def get_experiment(self, experiment_id: str) -> Optional[Dict[str, Any]]:
-        """Get experiment by ID."""
+    async def get_experiment(self, experiment_id: str):
+        """Get experiment by ID.
+        
+        Args:
+            experiment_id: ID of the experiment to retrieve
+            
+        Returns:
+            ExperimentSpec object
+            
+        Raises:
+            ExperimentNotFoundException: If experiment with given ID doesn't exist
+        """
+        from ruckus_common.models import ExperimentSpec
+        
         async def _get():
             async with self.session_factory() as session:
                 stmt = select(Experiment).where(Experiment.id == experiment_id)
                 result = await session.execute(stmt)
                 experiment = result.scalar_one_or_none()
                 
-                if experiment:
-                    return {
-                        "id": experiment.id,
-                        "name": experiment.name,
-                        "description": experiment.description,
-                        "config": experiment.config,
-                        "status": experiment.status,
-                        "created_at": experiment.created_at,
-                        "updated_at": experiment.updated_at
-                    }
-                return None
+                if not experiment:
+                    raise ExperimentNotFoundException(experiment_id)
+                
+                # Convert stored JSON back to ExperimentSpec
+                return ExperimentSpec(**experiment.spec_data)
         
         try:
             return await self._retry_operation(_get)
+        except ExperimentNotFoundException:
+            # Re-raise this specific exception without wrapping
+            raise
         except Exception as e:
             self.logger.error(f"Failed to get experiment {experiment_id}: {e}")
-            return None
+            raise
     
-    async def list_experiments(self) -> List[Dict[str, Any]]:
-        """List all experiments."""
+    async def list_experiments(self):
+        """List all experiments.
+        
+        Returns:
+            List of ExperimentSpec objects
+        """
+        from ruckus_common.models import ExperimentSpec
+        
         async def _list():
             async with self.session_factory() as session:
                 stmt = select(Experiment)
                 result = await session.execute(stmt)
                 experiments = result.scalars().all()
                 
+                # Convert each stored experiment to ExperimentSpec
                 return [
-                    {
-                        "id": experiment.id,
-                        "name": experiment.name,
-                        "description": experiment.description,
-                        "config": experiment.config,
-                        "status": experiment.status,
-                        "created_at": experiment.created_at,
-                        "updated_at": experiment.updated_at
-                    }
+                    ExperimentSpec(**experiment.spec_data)
                     for experiment in experiments
                 ]
         
@@ -322,22 +346,47 @@ class SQLiteStorageBackend(StorageBackend):
             return await self._retry_operation(_list)
         except Exception as e:
             self.logger.error(f"Failed to list experiments: {e}")
-            return []
+            raise
     
-    async def delete_experiment(self, experiment_id: str) -> bool:
-        """Delete an experiment."""
+    async def delete_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        """Delete an experiment by ID."""
+        
         async def _delete():
             async with self.session_factory() as session:
-                stmt = delete(Experiment).where(Experiment.id == experiment_id)
-                result = await session.execute(stmt)
+                # First, check if experiment exists
+                experiment_stmt = select(Experiment).where(Experiment.id == experiment_id)
+                experiment_result = await session.execute(experiment_stmt)
+                experiment = experiment_result.scalar_one_or_none()
+                
+                if not experiment:
+                    raise ExperimentNotFoundException(experiment_id)
+                
+                # Check for associated jobs
+                jobs_stmt = select(Job).where(Job.experiment_id == experiment_id)
+                jobs_result = await session.execute(jobs_stmt)
+                jobs = jobs_result.scalars().all()
+                
+                if jobs:
+                    raise ExperimentHasJobsException(experiment_id, len(jobs))
+                
+                # Delete the experiment
+                delete_stmt = delete(Experiment).where(Experiment.id == experiment_id)
+                await session.execute(delete_stmt)
                 await session.commit()
-                return result.rowcount > 0
+                
+                return {
+                    "experiment_id": experiment_id,
+                    "deleted_at": datetime.now(timezone.utc)
+                }
         
         try:
             return await self._retry_operation(_delete)
+        except (ExperimentNotFoundException, ExperimentHasJobsException):
+            # Re-raise these specific exceptions without wrapping
+            raise
         except Exception as e:
             self.logger.error(f"Failed to delete experiment {experiment_id}: {e}")
-            return False
+            raise
     
     # Job management
     async def create_job(self, job_id: str, experiment_id: str, 

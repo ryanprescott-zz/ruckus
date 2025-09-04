@@ -14,13 +14,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from ruckus_server.main import app
-from ruckus_server.core.server import RuckusServer
-from ruckus_server.core.config import RuckusServerSettings, SQLiteSettings, AgentSettings, HttpClientSettings
+from ruckus_server.core.agent_manager import AgentManager
+from ruckus_server.core.experiment_manager import ExperimentManager
+from ruckus_server.core.config import AgentManagerSettings, ExperimentManagerSettings, StorageSettings, StorageBackendType, SQLiteSettings, AgentSettings, HttpClientSettings
 from ruckus_server.core.storage.sqlite import SQLiteStorageBackend
 from ruckus_server.core.clients.http import HttpClient
 from ruckus_server.core.clients.simple_http import SimpleHttpClient
 from ruckus_server.core.agent import AgentProtocolUtility
-from ruckus_common.models import AgentInfo, AgentType, AgentInfoResponse, RegisteredAgentInfo, AgentStatus, AgentStatusEnum
+from ruckus_common.models import AgentInfo, AgentType, AgentInfoResponse, RegisteredAgentInfo, AgentStatus, AgentStatusEnum, ExperimentSpec, TaskType
 
 
 @pytest.fixture(scope="session")
@@ -73,13 +74,21 @@ def http_client_settings():
 
 
 @pytest.fixture
-def ruckus_server_settings(sqlite_settings, agent_settings, http_client_settings):
-    """Create RuckusServer settings for testing."""
-    return RuckusServerSettings(
+def storage_settings(sqlite_settings):
+    """Create storage settings for testing."""
+    return StorageSettings(
+        storage_backend=StorageBackendType.SQLITE,
+        sqlite=sqlite_settings
+    )
+
+
+@pytest.fixture
+def agent_manager_settings(storage_settings, agent_settings, http_client_settings):
+    """Create AgentManager settings for testing."""
+    return AgentManagerSettings(
         log_level="DEBUG",
         log_config_file="logging.yml",
-        storage_backend="sqlite",
-        sqlite=sqlite_settings,
+        storage=storage_settings,
         agent=agent_settings,
         http_client=http_client_settings
     )
@@ -97,14 +106,14 @@ async def sqlite_storage(sqlite_settings):
 
 
 @pytest_asyncio.fixture
-async def ruckus_server(ruckus_server_settings):
-    """Create and start RuckusServer instance."""
-    server = RuckusServer(ruckus_server_settings)
-    await server.start()
+async def agent_manager(agent_manager_settings):
+    """Create and start AgentManager instance."""
+    manager = AgentManager(agent_manager_settings)
+    await manager.start()
     try:
-        yield server
+        yield manager
     finally:
-        await server.stop()
+        await manager.stop()
 
 
 @pytest.fixture
@@ -229,20 +238,20 @@ def test_client():
 
 
 @pytest.fixture
-def test_client_with_server(ruckus_server):
-    """Create FastAPI test client with initialized server."""
-    # Set the server instance in app state
-    if not hasattr(app.state, 'server'):
-        app.state.server = None
-    original_server = app.state.server
-    app.state.server = ruckus_server
+def test_client_with_server(agent_manager):
+    """Create FastAPI test client with initialized agent manager."""
+    # Set the agent manager instance in app state
+    if not hasattr(app.state, 'agent_manager'):
+        app.state.agent_manager = None
+    original_agent_manager = app.state.agent_manager
+    app.state.agent_manager = agent_manager
     
     try:
         with TestClient(app) as client:
             yield client
     finally:
         # Cleanup
-        app.state.server = original_server
+        app.state.agent_manager = original_agent_manager
 
 
 @pytest.fixture
@@ -308,3 +317,106 @@ def registered_agent_info_factory():
             registered_at=kwargs.get("registered_at", datetime.now(timezone.utc))
         )
     return _create_registered_agent_info
+
+
+# Experiment-related fixtures
+@pytest.fixture
+def experiment_manager_settings(storage_settings):
+    """Create ExperimentManager settings for testing."""
+    return ExperimentManagerSettings(
+        log_level="DEBUG",
+        log_config_file="logging.yml",
+        storage=storage_settings
+    )
+
+
+@pytest_asyncio.fixture
+async def experiment_manager(experiment_manager_settings):
+    """Create and start ExperimentManager instance."""
+    manager = ExperimentManager(experiment_manager_settings)
+    await manager.start()
+    try:
+        yield manager
+    finally:
+        await manager.stop()
+
+
+@pytest.fixture
+def sample_experiment_spec():
+    """Create sample ExperimentSpec for testing."""
+    return ExperimentSpec(
+        experiment_id="test-experiment-123",
+        name="Test Experiment",
+        description="A test experiment for unit testing",
+        models=["test-model"],
+        task_type=TaskType.SUMMARIZATION,
+        priority=5,
+        timeout_seconds=7200,
+        owner="test-user",
+        tags=["test", "unit-test"]
+    )
+
+
+@pytest.fixture
+def test_client_with_experiment_manager(experiment_manager):
+    """Create FastAPI test client with initialized experiment manager."""
+    # Set the experiment manager instance in app state
+    if not hasattr(app.state, 'experiment_manager'):
+        app.state.experiment_manager = None
+    original_experiment_manager = app.state.experiment_manager
+    app.state.experiment_manager = experiment_manager
+    
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        # Cleanup
+        app.state.experiment_manager = original_experiment_manager
+
+
+@pytest.fixture
+def test_client_with_both_managers(agent_manager, experiment_manager):
+    """Create FastAPI test client with both agent and experiment managers."""
+    # Set both managers in app state
+    if not hasattr(app.state, 'agent_manager'):
+        app.state.agent_manager = None
+    if not hasattr(app.state, 'experiment_manager'):
+        app.state.experiment_manager = None
+        
+    original_agent_manager = app.state.agent_manager
+    original_experiment_manager = app.state.experiment_manager
+    
+    app.state.agent_manager = agent_manager
+    app.state.experiment_manager = experiment_manager
+    
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        # Cleanup
+        app.state.agent_manager = original_agent_manager
+        app.state.experiment_manager = original_experiment_manager
+
+
+@pytest.fixture
+def experiment_spec_factory():
+    """Factory function to create ExperimentSpec instances."""
+    def _create_experiment_spec(
+        experiment_id: str = None,
+        name: str = None,
+        models: list = None,
+        task_type: TaskType = TaskType.SUMMARIZATION,
+        **kwargs
+    ):
+        return ExperimentSpec(
+            experiment_id=experiment_id or f"experiment-{datetime.now(timezone.utc).timestamp()}",
+            name=name or "Test Experiment",
+            description=kwargs.get("description", "Test experiment description"),
+            models=models or ["test-model"],
+            task_type=task_type,
+            priority=kwargs.get("priority", 0),
+            timeout_seconds=kwargs.get("timeout_seconds", 3600),
+            owner=kwargs.get("owner"),
+            tags=kwargs.get("tags", [])
+        )
+    return _create_experiment_spec

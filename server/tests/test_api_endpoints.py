@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock
 
 from fastapi.testclient import TestClient
-from ruckus_server.core.server import AgentAlreadyRegisteredException, AgentNotRegisteredException
+from ruckus_server.core.agent_manager import AgentAlreadyRegisteredException, AgentNotRegisteredException
 from ruckus_server.core.clients.http import ConnectionError, ServiceUnavailableError
 from ruckus_common.models import AgentStatus, AgentStatusEnum
 
@@ -17,7 +17,7 @@ class TestAgentEndpoints:
     def test_register_agent_success(self, test_client_with_server, sample_registered_agent_info):
         """Test successful agent registration."""
         # Mock the server method
-        test_client_with_server.app.state.server.register_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.register_agent = AsyncMock(
             return_value={
                 "agent_id": sample_registered_agent_info.agent_id,
                 "registered_at": sample_registered_agent_info.registered_at
@@ -64,7 +64,7 @@ class TestAgentEndpoints:
 
     def test_register_agent_already_registered(self, test_client_with_server):
         """Test registering agent that's already registered."""
-        test_client_with_server.app.state.server.register_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.register_agent = AsyncMock(
             side_effect=AgentAlreadyRegisteredException("test-agent", "2023-01-01T00:00:00")
         )
         
@@ -78,7 +78,7 @@ class TestAgentEndpoints:
 
     def test_register_agent_connection_error(self, test_client_with_server):
         """Test agent registration with connection error."""
-        test_client_with_server.app.state.server.register_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.register_agent = AsyncMock(
             side_effect=ConnectionError("Connection failed")
         )
         
@@ -92,7 +92,7 @@ class TestAgentEndpoints:
 
     def test_register_agent_service_unavailable(self, test_client_with_server):
         """Test agent registration with service unavailable."""
-        test_client_with_server.app.state.server.register_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.register_agent = AsyncMock(
             side_effect=ServiceUnavailableError("Service unavailable")
         )
         
@@ -113,12 +113,12 @@ class TestAgentEndpoints:
         )
         
         assert response.status_code == 503
-        assert "Server not initialized" in response.json()["detail"]
+        assert "Agent manager not initialized" in response.json()["detail"]
 
     def test_unregister_agent_success(self, test_client_with_server):
         """Test successful agent unregistration."""
         unregistered_at = datetime.now(timezone.utc)
-        test_client_with_server.app.state.server.unregister_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.unregister_agent = AsyncMock(
             return_value={
                 "agent_id": "test-agent-123",
                 "unregistered_at": unregistered_at
@@ -137,7 +137,7 @@ class TestAgentEndpoints:
 
     def test_unregister_agent_not_found(self, test_client_with_server):
         """Test unregistering non-existent agent."""
-        test_client_with_server.app.state.server.unregister_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.unregister_agent = AsyncMock(
             side_effect=AgentNotRegisteredException("non-existent-agent")
         )
         
@@ -160,7 +160,7 @@ class TestAgentEndpoints:
 
     def test_list_agents_success(self, test_client_with_server, sample_registered_agent_info):
         """Test successful agent listing."""
-        test_client_with_server.app.state.server.list_registered_agent_info = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_info = AsyncMock(
             return_value=[sample_registered_agent_info]
         )
         
@@ -174,7 +174,7 @@ class TestAgentEndpoints:
 
     def test_list_agents_empty(self, test_client_with_server):
         """Test agent listing when no agents registered."""
-        test_client_with_server.app.state.server.list_registered_agent_info = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_info = AsyncMock(
             return_value=[]
         )
         
@@ -187,7 +187,7 @@ class TestAgentEndpoints:
     def test_get_agent_info_success(self, test_client_with_server, sample_registered_agent_info):
         """Test successful agent info retrieval."""
         agent_id = sample_registered_agent_info.agent_id
-        test_client_with_server.app.state.server.get_registered_agent_info = AsyncMock(
+        test_client_with_server.app.state.agent_manager.get_registered_agent_info = AsyncMock(
             return_value=sample_registered_agent_info
         )
         
@@ -201,7 +201,7 @@ class TestAgentEndpoints:
     def test_get_agent_info_not_found(self, test_client_with_server):
         """Test agent info retrieval for non-existent agent."""
         agent_id = "non-existent-agent"
-        test_client_with_server.app.state.server.get_registered_agent_info = AsyncMock(
+        test_client_with_server.app.state.agent_manager.get_registered_agent_info = AsyncMock(
             side_effect=AgentNotRegisteredException(agent_id)
         )
         
@@ -212,7 +212,7 @@ class TestAgentEndpoints:
 
     def test_list_agent_status_success(self, test_client_with_server, sample_agent_status):
         """Test successful agent status listing."""
-        test_client_with_server.app.state.server.list_registered_agent_status = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_status = AsyncMock(
             return_value=[sample_agent_status]
         )
         
@@ -227,7 +227,7 @@ class TestAgentEndpoints:
 
     def test_list_agent_status_empty(self, test_client_with_server):
         """Test agent status listing when no agents registered."""
-        test_client_with_server.app.state.server.list_registered_agent_status = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_status = AsyncMock(
             return_value=[]
         )
         
@@ -248,7 +248,7 @@ class TestAgentEndpoints:
             timestamp=datetime.now(timezone.utc)
         )
         
-        test_client_with_server.app.state.server.list_registered_agent_status = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_status = AsyncMock(
             return_value=[unavailable_status]
         )
         
@@ -263,7 +263,7 @@ class TestAgentEndpoints:
     def test_get_agent_status_success(self, test_client_with_server, sample_agent_status):
         """Test successful individual agent status retrieval."""
         agent_id = sample_agent_status.agent_id
-        test_client_with_server.app.state.server.get_registered_agent_status = AsyncMock(
+        test_client_with_server.app.state.agent_manager.get_registered_agent_status = AsyncMock(
             return_value=sample_agent_status
         )
         
@@ -278,7 +278,7 @@ class TestAgentEndpoints:
     def test_get_agent_status_not_found(self, test_client_with_server):
         """Test individual agent status retrieval for non-existent agent."""
         agent_id = "non-existent-agent"
-        test_client_with_server.app.state.server.get_registered_agent_status = AsyncMock(
+        test_client_with_server.app.state.agent_manager.get_registered_agent_status = AsyncMock(
             side_effect=AgentNotRegisteredException(agent_id)
         )
         
@@ -299,7 +299,7 @@ class TestAgentEndpoints:
             timestamp=datetime.now(timezone.utc)
         )
         
-        test_client_with_server.app.state.server.get_registered_agent_status = AsyncMock(
+        test_client_with_server.app.state.agent_manager.get_registered_agent_status = AsyncMock(
             return_value=unavailable_status
         )
         
@@ -313,8 +313,8 @@ class TestAgentEndpoints:
     def test_api_endpoints_content_type(self, test_client_with_server):
         """Test that API endpoints return proper content type."""
         # Mock server methods to avoid actual calls
-        test_client_with_server.app.state.server.list_registered_agent_info = AsyncMock(return_value=[])
-        test_client_with_server.app.state.server.list_registered_agent_status = AsyncMock(return_value=[])
+        test_client_with_server.app.state.agent_manager.list_registered_agent_info = AsyncMock(return_value=[])
+        test_client_with_server.app.state.agent_manager.list_registered_agent_status = AsyncMock(return_value=[])
         
         # Test various endpoints
         endpoints = [
@@ -329,7 +329,7 @@ class TestAgentEndpoints:
 
     def test_api_error_responses_format(self, test_client_with_server):
         """Test that API error responses have consistent format."""
-        test_client_with_server.app.state.server.register_agent = AsyncMock(
+        test_client_with_server.app.state.agent_manager.register_agent = AsyncMock(
             side_effect=ValueError("Test error")
         )
         
@@ -348,7 +348,7 @@ class TestAgentEndpoints:
         import threading
         import time
         
-        test_client_with_server.app.state.server.list_registered_agent_info = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_info = AsyncMock(
             return_value=[]
         )
         
@@ -401,7 +401,7 @@ class TestAgentEndpoints:
 
     def test_response_serialization(self, test_client_with_server, sample_registered_agent_info):
         """Test that complex objects are properly serialized in responses."""
-        test_client_with_server.app.state.server.list_registered_agent_info = AsyncMock(
+        test_client_with_server.app.state.agent_manager.list_registered_agent_info = AsyncMock(
             return_value=[sample_registered_agent_info]
         )
         

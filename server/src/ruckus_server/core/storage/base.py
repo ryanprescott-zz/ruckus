@@ -12,6 +12,31 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 
+class ExperimentAlreadyExistsException(Exception):
+    """Exception raised when attempting to create an experiment that already exists."""
+    
+    def __init__(self, experiment_id: str):
+        self.experiment_id = experiment_id
+        super().__init__(f"Experiment {experiment_id} already exists")
+
+
+class ExperimentNotFoundException(Exception):
+    """Exception raised when attempting to access an experiment that doesn't exist."""
+    
+    def __init__(self, experiment_id: str):
+        self.experiment_id = experiment_id
+        super().__init__(f"Experiment {experiment_id} not found")
+
+
+class ExperimentHasJobsException(Exception):
+    """Exception raised when attempting to delete an experiment that has associated jobs."""
+    
+    def __init__(self, experiment_id: str, job_count: int):
+        self.experiment_id = experiment_id
+        self.job_count = job_count
+        super().__init__(f"Cannot delete experiment {experiment_id}: it has {job_count} associated job(s)")
+
+
 class StorageBackendType(str, Enum):
     """Supported storage backend types."""
     POSTGRESQL = "postgresql"
@@ -40,10 +65,10 @@ class Experiment(Base):
     """Experiment database model."""
     __tablename__ = "experiments"
     
-    id = Column(String, primary_key=True)
+    id = Column(String, primary_key=True)  # This is the experiment_id from ExperimentSpec
     name = Column(String)
     description = Column(Text)
-    config = Column(JSON)
+    spec_data = Column(JSON)  # Complete ExperimentSpec serialized as JSON
     status = Column(String, default="created")
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
@@ -147,9 +172,18 @@ class StorageBackend(ABC):
     
     # Experiment management
     @abstractmethod
-    async def create_experiment(self, experiment_id: str, name: str, 
-                              description: str, config: Dict[str, Any]) -> bool:
-        """Create a new experiment."""
+    async def create_experiment(self, experiment_spec) -> Dict[str, Any]:
+        """Create a new experiment from ExperimentSpec.
+        
+        Args:
+            experiment_spec: ExperimentSpec object containing experiment details
+            
+        Returns:
+            Dict containing the created experiment with 'experiment_id' and 'created_at'
+            
+        Raises:
+            ExperimentAlreadyExistsException: If experiment with same ID already exists
+        """
         pass
     
     @abstractmethod
@@ -158,18 +192,43 @@ class StorageBackend(ABC):
         pass
     
     @abstractmethod
-    async def get_experiment(self, experiment_id: str) -> Optional[Dict[str, Any]]:
-        """Get experiment by ID."""
+    async def get_experiment(self, experiment_id: str):
+        """Get experiment by ID.
+        
+        Args:
+            experiment_id: ID of the experiment to retrieve
+            
+        Returns:
+            ExperimentSpec object
+            
+        Raises:
+            ExperimentNotFoundException: If experiment with given ID doesn't exist
+        """
         pass
     
     @abstractmethod
-    async def list_experiments(self) -> List[Dict[str, Any]]:
-        """List all experiments."""
+    async def list_experiments(self):
+        """List all experiments.
+        
+        Returns:
+            List of ExperimentSpec objects
+        """
         pass
     
     @abstractmethod
-    async def delete_experiment(self, experiment_id: str) -> bool:
-        """Delete an experiment."""
+    async def delete_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        """Delete an experiment by ID.
+        
+        Args:
+            experiment_id: ID of the experiment to delete
+            
+        Returns:
+            Dict containing the deleted experiment's ID and deletion timestamp
+            
+        Raises:
+            ExperimentNotFoundException: If experiment with given ID doesn't exist
+            ExperimentHasJobsException: If experiment has associated jobs
+        """
         pass
     
     # Job management
@@ -207,94 +266,3 @@ class StorageBackend(ABC):
     async def get_jobs_for_agent(self, agent_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get jobs assigned to a specific agent."""
         pass
-    
-    # Orchestration methods (to be implemented by backends)
-    async def store_experiment_execution(self, execution) -> bool:
-        """Store experiment execution state.
-        
-        Args:
-            execution: ExperimentExecution object
-            
-        Returns:
-            True if stored successfully
-        """
-        # Default implementation stores as JSON in experiment table
-        return await self.create_experiment(
-            execution.experiment_id,
-            execution.spec.name,
-            execution.spec.description or "",
-            {
-                "spec": execution.spec.dict(),
-                "execution": execution.dict()
-            }
-        )
-    
-    async def update_experiment_execution(self, execution) -> bool:
-        """Update experiment execution state.
-        
-        Args:
-            execution: ExperimentExecution object
-            
-        Returns:
-            True if updated successfully
-        """
-        # Default implementation - subclasses should override for efficiency
-        return await self.update_experiment_status(execution.experiment_id, execution.status)
-    
-    async def get_experiment_execution(self, experiment_id: str):
-        """Get experiment execution state.
-        
-        Args:
-            experiment_id: ID of experiment
-            
-        Returns:
-            ExperimentExecution object or None if not found
-        """
-        # Default implementation - subclasses should override
-        experiment_data = await self.get_experiment(experiment_id)
-        if not experiment_data or "execution" not in experiment_data.get("config", {}):
-            return None
-        
-        # This is a simplified version - real implementation would reconstruct the object
-        return None
-    
-    async def create_job_spec(self, job_spec) -> bool:
-        """Create a job specification.
-        
-        Args:
-            job_spec: JobSpec object
-            
-        Returns:
-            True if created successfully
-        """
-        return await self.create_job(
-            job_spec.job_id,
-            job_spec.experiment_id,
-            job_spec.dict()
-        )
-    
-    async def get_job_spec(self, job_id: str):
-        """Get job specification.
-        
-        Args:
-            job_id: Job ID
-            
-        Returns:
-            JobSpec object or None if not found
-        """
-        # Default implementation - subclasses should override
-        return None
-    
-    async def update_job_spec(self, job_spec) -> bool:
-        """Update job specification.
-        
-        Args:
-            job_spec: JobSpec object
-            
-        Returns:
-            True if updated successfully
-        """
-        return await self.update_job_status(
-            job_spec.job_id,
-            job_spec.status.value if hasattr(job_spec.status, 'value') else str(job_spec.status)
-        )

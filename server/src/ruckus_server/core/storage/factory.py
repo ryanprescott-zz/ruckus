@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Any
 
-from ..config import Settings, StorageBackendType
+from ..config import StorageSettings, StorageBackendType
 from .base import StorageBackend
 from .postgresql import PostgreSQLStorageBackend
 from .sqlite import SQLiteStorageBackend
@@ -17,11 +17,11 @@ class StorageFactory:
         self.logger = logging.getLogger(__name__)
         self.logger.info("StorageFactory initialized")
     
-    def create_storage_backend(self, settings: Settings) -> StorageBackend:
+    def create_storage_backend(self, storage_settings: StorageSettings) -> StorageBackend:
         """Create a storage backend based on settings.
         
         Args:
-            settings: Application settings containing storage configuration
+            storage_settings: Storage configuration settings
             
         Returns:
             StorageBackend: Configured storage backend instance
@@ -29,23 +29,23 @@ class StorageFactory:
         Raises:
             ValueError: If storage backend type is not supported
         """
-        self.logger.info(f"Creating storage backend of type: {settings.storage_backend}")
+        self.logger.info(f"Creating storage backend of type: {storage_settings.storage_backend}")
         
         try:
-            if settings.storage_backend == StorageBackendType.POSTGRESQL:
+            if storage_settings.storage_backend == StorageBackendType.POSTGRESQL:
                 self.logger.info("Creating PostgreSQL storage backend")
-                backend = PostgreSQLStorageBackend(settings.postgresql)
+                backend = PostgreSQLStorageBackend(storage_settings.postgresql)
                 self.logger.info("PostgreSQL storage backend created successfully")
                 return backend
                 
-            elif settings.storage_backend == StorageBackendType.SQLITE:
+            elif storage_settings.storage_backend == StorageBackendType.SQLITE:
                 self.logger.info("Creating SQLite storage backend")
-                backend = SQLiteStorageBackend(settings.sqlite)
+                backend = SQLiteStorageBackend(storage_settings.sqlite)
                 self.logger.info("SQLite storage backend created successfully")
                 return backend
                 
             else:
-                error_msg = f"Unsupported storage backend type: {settings.storage_backend}"
+                error_msg = f"Unsupported storage backend type: {storage_settings.storage_backend}"
                 self.logger.error(error_msg)
                 raise ValueError(error_msg)
                 

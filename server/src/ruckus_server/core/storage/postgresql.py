@@ -226,27 +226,63 @@ class PostgreSQLStorageBackend(StorageBackend):
             return False
     
     # Experiment management
-    async def create_experiment(self, experiment_id: str, name: str, 
-                              description: str, config: Dict[str, Any]) -> bool:
-        """Create a new experiment."""
+    async def create_experiment(self, experiment_spec) -> Dict[str, Any]:
+        """Create a new experiment from ExperimentSpec.
+        
+        Args:
+            experiment_spec: ExperimentSpec object containing experiment details
+            
+        Returns:
+            Dict containing the created experiment with 'experiment_id' and 'created_at'
+            
+        Raises:
+            ExperimentAlreadyExistsException: If experiment with same ID already exists
+        """
+        from ruckus_server.core.storage.base import ExperimentAlreadyExistsException
+        from sqlalchemy.exc import IntegrityError
+        
         async def _create():
             async with self.session_factory() as session:
+                # Check if experiment already exists
+                stmt = select(Experiment).where(Experiment.id == experiment_spec.experiment_id)
+                result = await session.execute(stmt)
+                if result.scalar_one_or_none():
+                    raise ExperimentAlreadyExistsException(experiment_spec.experiment_id)
+                
+                # Create new experiment
+                created_at = datetime.now(timezone.utc)
                 experiment = Experiment(
-                    id=experiment_id,
-                    name=name,
-                    description=description,
-                    config=config,
-                    status="created"
+                    id=experiment_spec.experiment_id,
+                    name=experiment_spec.name,
+                    description=experiment_spec.description,
+                    spec_data=experiment_spec.model_dump(mode='json'),
+                    status="created",
+                    created_at=created_at,
+                    updated_at=created_at
                 )
                 session.add(experiment)
                 await session.commit()
-                return True
+                
+                return {
+                    "experiment_id": experiment_spec.experiment_id,
+                    "created_at": created_at
+                }
         
         try:
             return await self._retry_operation(_create)
+        except ExperimentAlreadyExistsException:
+            # Re-raise this specific exception without wrapping
+            raise
+        except IntegrityError as e:
+            # Handle database constraint violations
+            if "unique constraint" in str(e).lower():
+                raise ExperimentAlreadyExistsException(experiment_spec.experiment_id)
+            else:
+                self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+                raise
         except Exception as e:
-            self.logger.error(f"Failed to create experiment {experiment_id}: {e}")
-            return False
+            self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+            raise
     
     async def update_experiment_status(self, experiment_id: str, status: str) -> bool:
         """Update experiment status."""
@@ -265,50 +301,58 @@ class PostgreSQLStorageBackend(StorageBackend):
             self.logger.error(f"Failed to update experiment {experiment_id} status: {e}")
             return False
     
-    async def get_experiment(self, experiment_id: str) -> Optional[Dict[str, Any]]:
-        """Get experiment by ID."""
+    async def get_experiment(self, experiment_id: str):
+        """Get experiment by ID.
+        
+        Args:
+            experiment_id: ID of the experiment to retrieve
+            
+        Returns:
+            ExperimentSpec object
+            
+        Raises:
+            ExperimentNotFoundException: If experiment with given ID doesn't exist
+        """
+        from ruckus_common.models import ExperimentSpec
+        
         async def _get():
             async with self.session_factory() as session:
                 stmt = select(Experiment).where(Experiment.id == experiment_id)
                 result = await session.execute(stmt)
                 experiment = result.scalar_one_or_none()
                 
-                if experiment:
-                    return {
-                        "id": experiment.id,
-                        "name": experiment.name,
-                        "description": experiment.description,
-                        "config": experiment.config,
-                        "status": experiment.status,
-                        "created_at": experiment.created_at,
-                        "updated_at": experiment.updated_at
-                    }
-                return None
+                if not experiment:
+                    raise ExperimentNotFoundException(experiment_id)
+                
+                # Convert stored JSON back to ExperimentSpec
+                return ExperimentSpec(**experiment.spec_data)
         
         try:
             return await self._retry_operation(_get)
+        except ExperimentNotFoundException:
+            # Re-raise this specific exception without wrapping
+            raise
         except Exception as e:
             self.logger.error(f"Failed to get experiment {experiment_id}: {e}")
-            return None
+            raise
     
-    async def list_experiments(self) -> List[Dict[str, Any]]:
-        """List all experiments."""
+    async def list_experiments(self):
+        """List all experiments.
+        
+        Returns:
+            List of ExperimentSpec objects
+        """
+        from ruckus_common.models import ExperimentSpec
+        
         async def _list():
             async with self.session_factory() as session:
                 stmt = select(Experiment)
                 result = await session.execute(stmt)
                 experiments = result.scalars().all()
                 
+                # Convert each stored experiment to ExperimentSpec
                 return [
-                    {
-                        "id": experiment.id,
-                        "name": experiment.name,
-                        "description": experiment.description,
-                        "config": experiment.config,
-                        "status": experiment.status,
-                        "created_at": experiment.created_at,
-                        "updated_at": experiment.updated_at
-                    }
+                    ExperimentSpec(**experiment.spec_data)
                     for experiment in experiments
                 ]
         
@@ -316,22 +360,59 @@ class PostgreSQLStorageBackend(StorageBackend):
             return await self._retry_operation(_list)
         except Exception as e:
             self.logger.error(f"Failed to list experiments: {e}")
-            return []
+            raise
     
-    async def delete_experiment(self, experiment_id: str) -> bool:
-        """Delete an experiment."""
+    async def delete_experiment(self, experiment_id: str) -> Dict[str, Any]:
+        """Delete an experiment by ID.
+        
+        Args:
+            experiment_id: ID of the experiment to delete
+            
+        Returns:
+            Dict containing the deleted experiment's ID and deletion timestamp
+            
+        Raises:
+            ExperimentNotFoundException: If experiment with given ID doesn't exist
+            ExperimentHasJobsException: If experiment has associated jobs
+        """
+        from ruckus_server.core.storage.base import ExperimentNotFoundException, ExperimentHasJobsException
+        
         async def _delete():
             async with self.session_factory() as session:
-                stmt = delete(Experiment).where(Experiment.id == experiment_id)
+                # Check if experiment exists
+                stmt = select(Experiment).where(Experiment.id == experiment_id)
                 result = await session.execute(stmt)
+                experiment = result.scalar_one_or_none()
+                
+                if not experiment:
+                    raise ExperimentNotFoundException(experiment_id)
+                
+                # Check for associated jobs
+                jobs_stmt = select(Job).where(Job.experiment_id == experiment_id)
+                jobs_result = await session.execute(jobs_stmt)
+                jobs = jobs_result.scalars().all()
+                
+                if jobs:
+                    raise ExperimentHasJobsException(experiment_id, len(jobs))
+                
+                # Delete the experiment
+                delete_stmt = delete(Experiment).where(Experiment.id == experiment_id)
+                await session.execute(delete_stmt)
                 await session.commit()
-                return result.rowcount > 0
+                
+                return {
+                    "experiment_id": experiment_id,
+                    "deleted_at": datetime.now(timezone.utc)
+                }
         
         try:
             return await self._retry_operation(_delete)
+        except (ExperimentNotFoundException, ExperimentHasJobsException):
+            # Re-raise these specific exceptions without wrapping
+            raise
         except Exception as e:
             self.logger.error(f"Failed to delete experiment {experiment_id}: {e}")
-            return False
+            raise
     
     # Job management
     async def create_job(self, job_id: str, experiment_id: str, 

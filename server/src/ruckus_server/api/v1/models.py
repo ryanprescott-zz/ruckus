@@ -6,7 +6,7 @@ import re
 
 from datetime import datetime
 from typing import List
-from ruckus_common.models import RegisteredAgentInfo, AgentStatus
+from ruckus_common.models import RegisteredAgentInfo, AgentStatus, ExperimentSpec
 
 
 class RegisterAgentRequest(BaseModel):
@@ -89,3 +89,48 @@ class GetAgentStatusResponse(BaseModel):
     """Response model for getting specific agent status information."""
     
     agent: AgentStatus = Field(..., description="Agent status information")
+
+
+# Experiment-related models
+class CreateExperimentRequest(BaseModel):
+    """Request model for creating a new experiment."""
+    
+    experiment_spec: ExperimentSpec = Field(..., description="ExperimentSpec containing experiment details")
+
+
+class CreateExperimentResponse(BaseModel):
+    """Response model for experiment creation."""
+    
+    experiment_id: str = Field(..., description="ID of the created experiment")
+    created_at: datetime = Field(..., description="Timestamp when the experiment was created")
+
+
+class DeleteExperimentResponse(BaseModel):
+    """Response model for experiment deletion."""
+    
+    experiment_id: str = Field(..., description="ID of the deleted experiment")
+    deleted_at: datetime = Field(..., description="Timestamp when the experiment was deleted")
+
+
+class ExperimentSummary(BaseModel):
+    """Summary of an experiment including metadata."""
+    
+    id: str = Field(..., description="Experiment ID")
+    name: str = Field(..., description="Experiment name")
+    description: str = Field(None, description="Experiment description")
+    spec_data: dict = Field(..., description="Complete ExperimentSpec data as JSON")
+    status: str = Field(..., description="Current experiment status")
+    created_at: datetime = Field(..., description="Timestamp when experiment was created")
+    updated_at: datetime = Field(..., description="Timestamp when experiment was last updated")
+
+
+class ListExperimentsResponse(BaseModel):
+    """Response model for listing experiments."""
+    
+    experiments: List[ExperimentSpec] = Field(..., description="List of all ExperimentSpec objects")
+
+
+class GetExperimentResponse(BaseModel):
+    """Response model for getting a specific experiment."""
+    
+    experiment: ExperimentSpec = Field(..., description="Complete ExperimentSpec of the requested experiment")
