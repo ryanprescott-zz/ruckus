@@ -35,18 +35,31 @@ def mock_experiment_manager():
 @pytest.fixture
 def sample_experiment_spec():
     """Create sample experiment spec for testing."""
-    from ruckus_common.models import TaskType
+    from ruckus_common.models import TaskType, TaskSpec, FrameworkSpec, MetricsSpec, LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName
     return ExperimentSpec(
-        experiment_id="test-experiment-123",
         name="Test Experiment",
         description="A test experiment for validation",
-        models=["test-model"],
-        task_type=TaskType.SUMMARIZATION,
-        tags=["test", "version-1.0"],
-        base_parameters={
-            "learning_rate": 0.01,
-            "batch_size": 32
-        }
+        model="test-model",
+        task=TaskSpec(
+            name="test_task",
+            type=TaskType.LLM_GENERATION,
+            description="Test task for validation",
+            params=LLMGenerationParams(
+                prompt_template=PromptTemplate(
+                    messages=[
+                        PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                        PromptMessage(role=PromptRole.USER, content="Please complete this task.")
+                    ]
+                )
+            )
+        ),
+        framework=FrameworkSpec(
+            name=FrameworkName.TRANSFORMERS,
+            params={"learning_rate": 0.01, "batch_size": 32}
+        ),
+        metrics=MetricsSpec(
+            metrics={"latency": "timer", "accuracy": "calculation"}
+        )
     )
 
 
@@ -72,14 +85,15 @@ class TestGetExperimentSuccess:
         experiment = response_data["experiment"]
         
         # Verify all ExperimentSpec fields
-        assert experiment["experiment_id"] == "test-experiment-123"
+        assert experiment["id"] == sample_experiment_spec.id
         assert experiment["name"] == "Test Experiment"
         assert experiment["description"] == "A test experiment for validation"
-        assert experiment["tags"] == {"type": "test", "version": "1.0"}
-        assert experiment["parameters"] == {"learning_rate": 0.01, "batch_size": 32}
+        assert experiment["model"] == "test-model"
+        assert experiment["task"]["type"] == "llm_generation"
+        assert experiment["framework"]["name"] == "transformers"
         
         # Verify experiment manager was called correctly
-        mock_experiment_manager.get_experiment.assert_called_once_with("test-experiment-123")
+        mock_experiment_manager.get_experiment.assert_called_once_with(sample_experiment_spec.id)
     
     def test_get_experiment_with_special_characters_in_id(self, client, app, mock_experiment_manager, sample_experiment_spec):
         """Test getting experiment with special characters in ID."""
@@ -102,7 +116,7 @@ class TestGetExperimentSuccess:
         sample_experiment_spec.experiment_id = "complex-experiment"
         sample_experiment_spec.name = "Complex Experiment"
         sample_experiment_spec.description = "An experiment with complex parameters"
-        sample_experiment_spec.parameters = {
+        sample_experiment_spec.base_parameters = {
             "model": {
                 "type": "neural_network",
                 "layers": [
@@ -129,9 +143,9 @@ class TestGetExperimentSuccess:
         response_data = response.json()
         experiment = response_data["experiment"]
         
-        assert experiment["parameters"]["model"]["type"] == "neural_network"
-        assert len(experiment["parameters"]["model"]["layers"]) == 2
-        assert experiment["parameters"]["metrics"] == ["accuracy", "loss", "f1_score"]
+        assert experiment["base_parameters"]["model"]["type"] == "neural_network"
+        assert len(experiment["base_parameters"]["model"]["layers"]) == 2
+        assert experiment["base_parameters"]["metrics"] == ["accuracy", "loss", "f1_score"]
 
 
 class TestGetExperimentNotFound:
@@ -157,10 +171,12 @@ class TestGetExperimentNotFound:
     def test_get_experiment_empty_id(self, client, app, mock_experiment_manager):
         """Test getting experiment with empty ID."""
         # Setup
+        from ruckus_server.core.storage.base import ExperimentNotFoundException
         app.state.experiment_manager = mock_experiment_manager
+        mock_experiment_manager.get_experiment.side_effect = ExperimentNotFoundException("")
         
-        # Execute - FastAPI will handle empty path parameter as 404
-        response = client.get("/api/v1/experiments/")
+        # Execute - test with an actual empty string as ID (URL encoded)
+        response = client.get("/api/v1/experiments/%20")  # Space character as minimal "empty" ID
         
         # Verify
         assert response.status_code == 404
@@ -254,7 +270,7 @@ class TestGetExperimentEdgeCases:
         sample_experiment_spec.experiment_id = "test-experiment"
         sample_experiment_spec.name = "Test Experiment"
         sample_experiment_spec.description = "Test description"
-        sample_experiment_spec.tags = {}
+        sample_experiment_spec.tags = []
         
         app.state.experiment_manager = mock_experiment_manager
         mock_experiment_manager.get_experiment.return_value = sample_experiment_spec
@@ -266,7 +282,7 @@ class TestGetExperimentEdgeCases:
         assert response.status_code == 200
         response_data = response.json()
         experiment = response_data["experiment"]
-        assert experiment["tags"] == {}
+        assert experiment["tags"] == []
     
     def test_get_experiment_spec_direct_return(self, client, app, mock_experiment_manager, sample_experiment_spec):
         """Test that ExperimentSpec is returned directly without reconstruction."""

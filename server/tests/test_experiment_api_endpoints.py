@@ -282,24 +282,20 @@ class TestExperimentEndpoints:
         """Test successful experiments listing."""
         # Mock the experiment manager method
         mock_experiments = [
-            {
-                "id": "exp-1",
-                "name": "Experiment 1",
-                "description": "First experiment",
-                "spec_data": {"models": ["model-1"], "task_type": "summarization"},
-                "status": "created",
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
-            },
-            {
-                "id": "exp-2", 
-                "name": "Experiment 2",
-                "description": "Second experiment",
-                "spec_data": {"models": ["model-2"], "task_type": "question_answering"},
-                "status": "running",
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
-            }
+            ExperimentSpec(
+                experiment_id="exp-1",
+                name="Experiment 1",
+                description="First experiment",
+                models=["model-1"],
+                task_type=TaskType.SUMMARIZATION
+            ),
+            ExperimentSpec(
+                experiment_id="exp-2",
+                name="Experiment 2", 
+                description="Second experiment",
+                models=["model-2"],
+                task_type=TaskType.QUESTION_ANSWERING
+            )
         ]
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
@@ -312,8 +308,8 @@ class TestExperimentEndpoints:
         data = response.json()
         assert "experiments" in data
         assert len(data["experiments"]) == 2
-        assert data["experiments"][0]["id"] == "exp-1"
-        assert data["experiments"][1]["id"] == "exp-2"
+        assert data["experiments"][0]["experiment_id"] == "exp-1"
+        assert data["experiments"][1]["experiment_id"] == "exp-2"
 
     def test_list_experiments_empty(self, test_client_with_experiment_manager):
         """Test experiments listing when no experiments exist."""
@@ -370,15 +366,15 @@ class TestExperimentEndpoints:
         # Create mock data for many experiments
         mock_experiments = []
         for i in range(100):
-            mock_experiments.append({
-                "id": f"exp-{i}",
-                "name": f"Experiment {i}",
-                "description": f"Description for experiment {i}",
-                "spec_data": {"models": [f"model-{i}"], "task_type": "summarization"},
-                "status": "created",
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
-            })
+            mock_experiments.append(
+                ExperimentSpec(
+                    experiment_id=f"exp-{i}",
+                    name=f"Experiment {i}",
+                    description=f"Description for experiment {i}",
+                    models=[f"model-{i}"],
+                    task_type=TaskType.SUMMARIZATION
+                )
+            )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=mock_experiments
@@ -389,20 +385,18 @@ class TestExperimentEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data["experiments"]) == 100
-        assert data["experiments"][0]["id"] == "exp-0"
-        assert data["experiments"][99]["id"] == "exp-99"
+        assert data["experiments"][0]["experiment_id"] == "exp-0"
+        assert data["experiments"][99]["experiment_id"] == "exp-99"
 
     def test_list_experiments_response_format(self, test_client_with_experiment_manager):
         """Test that list experiments response has correct format."""
-        mock_experiment = {
-            "id": "format-test",
-            "name": "Format Test Experiment",
-            "description": "Testing response format",
-            "spec_data": {"models": ["test-model"], "task_type": "summarization"},
-            "status": "created",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc)
-        }
+        mock_experiment = ExperimentSpec(
+            experiment_id="format-test",
+            name="Format Test Experiment",
+            description="Testing response format",
+            models=["test-model"],
+            task_type=TaskType.SUMMARIZATION
+        )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[mock_experiment]
@@ -418,13 +412,11 @@ class TestExperimentEndpoints:
         assert len(data["experiments"]) == 1
         
         experiment = data["experiments"][0]
-        assert "id" in experiment
+        assert "experiment_id" in experiment
         assert "name" in experiment
         assert "description" in experiment
-        assert "spec_data" in experiment
-        assert "status" in experiment
-        assert "created_at" in experiment
-        assert "updated_at" in experiment
+        assert "models" in experiment
+        assert "task_type" in experiment
 
     def test_list_experiments_content_type(self, test_client_with_experiment_manager):
         """Test that list experiments endpoint returns proper content type."""
@@ -442,15 +434,13 @@ class TestExperimentEndpoints:
         created_at = datetime.now(timezone.utc)
         updated_at = datetime.now(timezone.utc)
         
-        mock_experiment = {
-            "id": "datetime-test",
-            "name": "DateTime Test",
-            "description": "Testing datetime serialization",
-            "spec_data": {"models": ["test-model"], "task_type": "summarization"},
-            "status": "created",
-            "created_at": created_at,
-            "updated_at": updated_at
-        }
+        mock_experiment = ExperimentSpec(
+            experiment_id="datetime-test",
+            name="DateTime Test",
+            description="Testing datetime serialization",
+            models=["test-model"],
+            task_type=TaskType.SUMMARIZATION
+        )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[mock_experiment]
@@ -490,15 +480,13 @@ class TestExperimentEndpoints:
         # Mock successful listing
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[
-                {
-                    "id": "concurrent-test",
-                    "name": "Concurrent Test",
-                    "description": "Testing concurrent access",
-                    "spec_data": {"models": ["test-model"], "task_type": "summarization"},
-                    "status": "created",
-                    "created_at": datetime.now(timezone.utc),
-                    "updated_at": datetime.now(timezone.utc)
-                }
+                ExperimentSpec(
+                    experiment_id="concurrent-test",
+                    name="Concurrent Test",
+                    description="Testing concurrent access",
+                    models=["test-model"],
+                    task_type=TaskType.SUMMARIZATION
+                )
             ]
         )
         
@@ -724,24 +712,20 @@ class TestExperimentEndpoints:
         """Test successful experiments listing."""
         # Mock the experiment manager method
         mock_experiments = [
-            {
-                "id": "exp-1",
-                "name": "Experiment 1",
-                "description": "First experiment",
-                "spec_data": {"models": ["model-1"], "task_type": "summarization"},
-                "status": "created",
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
-            },
-            {
-                "id": "exp-2", 
-                "name": "Experiment 2",
-                "description": "Second experiment",
-                "spec_data": {"models": ["model-2"], "task_type": "question_answering"},
-                "status": "running",
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
-            }
+            ExperimentSpec(
+                experiment_id="exp-1",
+                name="Experiment 1",
+                description="First experiment",
+                models=["model-1"],
+                task_type=TaskType.SUMMARIZATION
+            ),
+            ExperimentSpec(
+                experiment_id="exp-2",
+                name="Experiment 2", 
+                description="Second experiment",
+                models=["model-2"],
+                task_type=TaskType.QUESTION_ANSWERING
+            )
         ]
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
@@ -754,8 +738,8 @@ class TestExperimentEndpoints:
         data = response.json()
         assert "experiments" in data
         assert len(data["experiments"]) == 2
-        assert data["experiments"][0]["id"] == "exp-1"
-        assert data["experiments"][1]["id"] == "exp-2"
+        assert data["experiments"][0]["experiment_id"] == "exp-1"
+        assert data["experiments"][1]["experiment_id"] == "exp-2"
 
     def test_list_experiments_empty(self, test_client_with_experiment_manager):
         """Test experiments listing when no experiments exist."""
@@ -812,15 +796,15 @@ class TestExperimentEndpoints:
         # Create mock data for many experiments
         mock_experiments = []
         for i in range(100):
-            mock_experiments.append({
-                "id": f"exp-{i}",
-                "name": f"Experiment {i}",
-                "description": f"Description for experiment {i}",
-                "spec_data": {"models": [f"model-{i}"], "task_type": "summarization"},
-                "status": "created",
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
-            })
+            mock_experiments.append(
+                ExperimentSpec(
+                    experiment_id=f"exp-{i}",
+                    name=f"Experiment {i}",
+                    description=f"Description for experiment {i}",
+                    models=[f"model-{i}"],
+                    task_type=TaskType.SUMMARIZATION
+                )
+            )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=mock_experiments
@@ -831,20 +815,18 @@ class TestExperimentEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data["experiments"]) == 100
-        assert data["experiments"][0]["id"] == "exp-0"
-        assert data["experiments"][99]["id"] == "exp-99"
+        assert data["experiments"][0]["experiment_id"] == "exp-0"
+        assert data["experiments"][99]["experiment_id"] == "exp-99"
 
     def test_list_experiments_response_format(self, test_client_with_experiment_manager):
         """Test that list experiments response has correct format."""
-        mock_experiment = {
-            "id": "format-test",
-            "name": "Format Test Experiment",
-            "description": "Testing response format",
-            "spec_data": {"models": ["test-model"], "task_type": "summarization"},
-            "status": "created",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc)
-        }
+        mock_experiment = ExperimentSpec(
+            experiment_id="format-test",
+            name="Format Test Experiment",
+            description="Testing response format",
+            models=["test-model"],
+            task_type=TaskType.SUMMARIZATION
+        )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[mock_experiment]
@@ -860,13 +842,11 @@ class TestExperimentEndpoints:
         assert len(data["experiments"]) == 1
         
         experiment = data["experiments"][0]
-        assert "id" in experiment
+        assert "experiment_id" in experiment
         assert "name" in experiment
         assert "description" in experiment
-        assert "spec_data" in experiment
-        assert "status" in experiment
-        assert "created_at" in experiment
-        assert "updated_at" in experiment
+        assert "models" in experiment
+        assert "task_type" in experiment
 
     def test_list_experiments_content_type(self, test_client_with_experiment_manager):
         """Test that list experiments endpoint returns proper content type."""
@@ -884,15 +864,13 @@ class TestExperimentEndpoints:
         created_at = datetime.now(timezone.utc)
         updated_at = datetime.now(timezone.utc)
         
-        mock_experiment = {
-            "id": "datetime-test",
-            "name": "DateTime Test",
-            "description": "Testing datetime serialization",
-            "spec_data": {"models": ["test-model"], "task_type": "summarization"},
-            "status": "created",
-            "created_at": created_at,
-            "updated_at": updated_at
-        }
+        mock_experiment = ExperimentSpec(
+            experiment_id="datetime-test",
+            name="DateTime Test",
+            description="Testing datetime serialization",
+            models=["test-model"],
+            task_type=TaskType.SUMMARIZATION
+        )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[mock_experiment]
@@ -932,15 +910,13 @@ class TestExperimentEndpoints:
         # Mock successful listing
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[
-                {
-                    "id": "concurrent-test",
-                    "name": "Concurrent Test",
-                    "description": "Testing concurrent access",
-                    "spec_data": {"models": ["test-model"], "task_type": "summarization"},
-                    "status": "created",
-                    "created_at": datetime.now(timezone.utc),
-                    "updated_at": datetime.now(timezone.utc)
-                }
+                ExperimentSpec(
+                    experiment_id="concurrent-test",
+                    name="Concurrent Test",
+                    description="Testing concurrent access",
+                    models=["test-model"],
+                    task_type=TaskType.SUMMARIZATION
+                )
             ]
         )
         

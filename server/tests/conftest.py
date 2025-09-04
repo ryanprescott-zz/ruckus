@@ -21,7 +21,9 @@ from ruckus_server.core.storage.sqlite import SQLiteStorageBackend
 from ruckus_server.core.clients.http import HttpClient
 from ruckus_server.core.clients.simple_http import SimpleHttpClient
 from ruckus_server.core.agent import AgentProtocolUtility
-from ruckus_common.models import AgentInfo, AgentType, AgentInfoResponse, RegisteredAgentInfo, AgentStatus, AgentStatusEnum, ExperimentSpec, TaskType
+from ruckus_common.models import (AgentInfo, AgentType, AgentInfoResponse, RegisteredAgentInfo, AgentStatus, AgentStatusEnum, 
+                               ExperimentSpec, TaskType, TaskSpec, FrameworkSpec, MetricsSpec, 
+                               LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 @pytest.fixture(scope="session")
@@ -345,15 +347,29 @@ async def experiment_manager(experiment_manager_settings):
 def sample_experiment_spec():
     """Create sample ExperimentSpec for testing."""
     return ExperimentSpec(
-        experiment_id="test-experiment-123",
         name="Test Experiment",
         description="A test experiment for unit testing",
-        models=["test-model"],
-        task_type=TaskType.SUMMARIZATION,
-        priority=5,
-        timeout_seconds=7200,
-        owner="test-user",
-        tags=["test", "unit-test"]
+        model="test-model",
+        task=TaskSpec(
+            name="test_task",
+            type=TaskType.LLM_GENERATION,
+            description="Test task for LLM generation",
+            params=LLMGenerationParams(
+                prompt_template=PromptTemplate(
+                    messages=[
+                        PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                        PromptMessage(role=PromptRole.USER, content="Please complete this task.")
+                    ]
+                )
+            )
+        ),
+        framework=FrameworkSpec(
+            name=FrameworkName.TRANSFORMERS,
+            params={"batch_size": 1}
+        ),
+        metrics=MetricsSpec(
+            metrics={"latency": "timer", "throughput": "calculation"}
+        )
     )
 
 
@@ -402,21 +418,34 @@ def test_client_with_both_managers(agent_manager, experiment_manager):
 def experiment_spec_factory():
     """Factory function to create ExperimentSpec instances."""
     def _create_experiment_spec(
-        experiment_id: str = None,
         name: str = None,
-        models: list = None,
-        task_type: TaskType = TaskType.SUMMARIZATION,
+        model: str = None,
         **kwargs
     ):
+        timestamp = datetime.now(timezone.utc).timestamp()
         return ExperimentSpec(
-            experiment_id=experiment_id or f"experiment-{datetime.now(timezone.utc).timestamp()}",
-            name=name or "Test Experiment",
+            name=name or f"Test Experiment {timestamp}",
             description=kwargs.get("description", "Test experiment description"),
-            models=models or ["test-model"],
-            task_type=task_type,
-            priority=kwargs.get("priority", 0),
-            timeout_seconds=kwargs.get("timeout_seconds", 3600),
-            owner=kwargs.get("owner"),
-            tags=kwargs.get("tags", [])
+            model=model or "test-model",
+            task=TaskSpec(
+                name=kwargs.get("task_name", "test_task"),
+                type=TaskType.LLM_GENERATION,
+                description=kwargs.get("task_description", "Test task for LLM generation"),
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Please complete this task.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params=kwargs.get("framework_params", {"batch_size": 1})
+            ),
+            metrics=MetricsSpec(
+                metrics=kwargs.get("metrics", {"latency": "timer", "throughput": "calculation"})
+            )
         )
     return _create_experiment_spec

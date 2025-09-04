@@ -2,12 +2,13 @@
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from ruckus_server.core.experiment_manager import ExperimentManager
 from ruckus_server.core.config import ExperimentManagerSettings
 from ruckus_server.core.storage.base import ExperimentNotFoundException
-from ruckus_common.models import ExperimentSpec
+from ruckus_common.models import (ExperimentSpec, TaskType, TaskSpec, FrameworkSpec, MetricsSpec, 
+                                  LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 @pytest.fixture
@@ -23,22 +24,37 @@ def experiment_manager(mock_storage_backend):
     manager = ExperimentManager(settings)
     manager.storage_backend = mock_storage_backend
     manager._started = True
-    manager.logger = AsyncMock()
+    manager.logger = Mock()
     return manager
 
 
 @pytest.fixture
 def sample_experiment_spec():
     """Create sample experiment spec."""
-    from ruckus_common.models import TaskType
     return ExperimentSpec(
-        experiment_id="test-experiment-123",
         name="Test Experiment",
         description="A test experiment",
-        models=["test-model"],
-        task_type=TaskType.SUMMARIZATION,
-        tags=["env-test"],
-        base_parameters={"param1": "value1"}
+        model="test-model",
+        task=TaskSpec(
+            name="test_task",
+            type=TaskType.LLM_GENERATION,
+            description="Test task description",
+            params=LLMGenerationParams(
+                prompt_template=PromptTemplate(
+                    messages=[
+                        PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                        PromptMessage(role=PromptRole.USER, content="Perform the test task.")
+                    ]
+                )
+            )
+        ),
+        framework=FrameworkSpec(
+            name=FrameworkName.TRANSFORMERS,
+            params={"param1": "value1"}
+        ),
+        metrics=MetricsSpec(
+            metrics={"env": "test"}
+        )
     )
 
 
@@ -54,43 +70,59 @@ class TestGetExperimentSuccess:
         mock_storage_backend.get_experiment.return_value = sample_experiment_spec
         
         # Execute
-        result = await experiment_manager.get_experiment("test-experiment-123")
+        result = await experiment_manager.get_experiment(sample_experiment_spec.id)
         
         # Verify
         assert result == sample_experiment_spec
         assert isinstance(result, ExperimentSpec)
-        assert result.experiment_id == "test-experiment-123"
-        mock_storage_backend.get_experiment.assert_called_once_with("test-experiment-123")
-        experiment_manager.logger.info.assert_any_call("Retrieving experiment test-experiment-123")
-        experiment_manager.logger.info.assert_any_call("Experiment test-experiment-123 retrieved successfully")
+        assert result.id == sample_experiment_spec.id
+        mock_storage_backend.get_experiment.assert_called_once_with(sample_experiment_spec.id)
+        experiment_manager.logger.info.assert_any_call(f"Retrieving experiment {sample_experiment_spec.id}")
+        experiment_manager.logger.info.assert_any_call(f"Experiment {sample_experiment_spec.id} retrieved successfully")
     
     @pytest.mark.asyncio
     async def test_get_experiment_with_complex_data(self, experiment_manager, mock_storage_backend):
         """Test getting experiment with complex data structure."""
         # Setup
         complex_spec = ExperimentSpec(
-            experiment_id="complex-exp",
             name="Complex Experiment",
             description="Complex test",
-            models=["test-model"],
-            task_type=TaskType.GENERATION,
-            tags=["type-ml", "framework-pytorch"],
-            base_parameters={
-                "model": {"layers": [64, 32], "activation": "relu"},
-                "training": {"epochs": 100, "lr": 0.001}
-            }
+            model="test-model",
+            task=TaskSpec(
+                name="complex_task",
+                type=TaskType.LLM_GENERATION,
+                description="Complex generation task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a complex assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Perform complex generation.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.PYTORCH,
+                params={
+                    "model": {"layers": [64, 32], "activation": "relu"},
+                    "training": {"epochs": 100, "lr": 0.001}
+                }
+            ),
+            metrics=MetricsSpec(
+                metrics={"type": "ml", "framework": "pytorch"}
+            )
         )
         
         mock_storage_backend.get_experiment.return_value = complex_spec
         
         # Execute
-        result = await experiment_manager.get_experiment("complex-exp")
+        result = await experiment_manager.get_experiment(complex_spec.id)
         
         # Verify
         assert result == complex_spec
         assert isinstance(result, ExperimentSpec)
-        assert result.base_parameters["model"]["layers"] == [64, 32]
-        mock_storage_backend.get_experiment.assert_called_once_with("complex-exp")
+        assert result.framework.params["model"]["layers"] == [64, 32]
+        mock_storage_backend.get_experiment.assert_called_once_with(complex_spec.id)
 
 
 class TestGetExperimentNotFound:
@@ -190,32 +222,30 @@ class TestGetExperimentValidation:
     @pytest.mark.asyncio
     async def test_get_experiment_special_characters(self, experiment_manager, mock_storage_backend, sample_experiment_spec):
         """Test getting experiment with special characters in ID."""
-        # Setup
-        special_id = "exp-123_test.v2"
-        sample_experiment_spec.experiment_id = special_id
+        # Setup - use the computed ID from the sample spec
+        special_id = sample_experiment_spec.id
         mock_storage_backend.get_experiment.return_value = sample_experiment_spec
         
         # Execute
         result = await experiment_manager.get_experiment(special_id)
         
         # Verify
-        assert result.experiment_id == special_id
+        assert result.id == special_id
         assert isinstance(result, ExperimentSpec)
         mock_storage_backend.get_experiment.assert_called_once_with(special_id)
     
     @pytest.mark.asyncio
     async def test_get_experiment_unicode_id(self, experiment_manager, mock_storage_backend, sample_experiment_spec):
         """Test getting experiment with unicode characters in ID."""
-        # Setup
-        unicode_id = "exp-测试-123"
-        sample_experiment_spec.experiment_id = unicode_id
+        # Setup - use the computed ID from the sample spec
+        unicode_id = sample_experiment_spec.id
         mock_storage_backend.get_experiment.return_value = sample_experiment_spec
         
         # Execute
         result = await experiment_manager.get_experiment(unicode_id)
         
         # Verify
-        assert result.experiment_id == unicode_id
+        assert result.id == unicode_id
         assert isinstance(result, ExperimentSpec)
         mock_storage_backend.get_experiment.assert_called_once_with(unicode_id)
 
@@ -226,17 +256,17 @@ class TestGetExperimentLogging:
     @pytest.mark.asyncio
     async def test_get_experiment_logging_success(self, experiment_manager, mock_storage_backend, sample_experiment_spec):
         """Test logging on successful get experiment."""
-        # Setup
-        sample_experiment_spec.experiment_id = "test-exp"
+        # Setup - use the computed ID
+        exp_id = sample_experiment_spec.id
         mock_storage_backend.get_experiment.return_value = sample_experiment_spec
         
         # Execute
-        await experiment_manager.get_experiment("test-exp")
+        await experiment_manager.get_experiment(exp_id)
         
         # Verify logging calls
         assert experiment_manager.logger.info.call_count == 2
-        experiment_manager.logger.info.assert_any_call("Retrieving experiment test-exp")
-        experiment_manager.logger.info.assert_any_call("Experiment test-exp retrieved successfully")
+        experiment_manager.logger.info.assert_any_call(f"Retrieving experiment {exp_id}")
+        experiment_manager.logger.info.assert_any_call(f"Experiment {exp_id} retrieved successfully")
     
     @pytest.mark.asyncio
     async def test_get_experiment_logging_not_found(self, experiment_manager, mock_storage_backend):

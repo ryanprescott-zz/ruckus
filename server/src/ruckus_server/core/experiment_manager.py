@@ -134,20 +134,20 @@ class ExperimentManager:
         if not self._started:
             raise RuntimeError("Experiment manager not started")
         
-        self.logger.info(f"Creating experiment {experiment_spec.experiment_id}")
+        self.logger.info(f"Creating experiment {experiment_spec.id}")
         
         try:
             # Call storage backend to create experiment
             result = await self.storage_backend.create_experiment(experiment_spec)
             
-            self.logger.info(f"Experiment {experiment_spec.experiment_id} created successfully")
+            self.logger.info(f"Experiment {experiment_spec.id} created successfully")
             return result
             
         except ExperimentAlreadyExistsException as e:
             self.logger.error(f"Failed to create experiment: {e}")
             raise
         except Exception as e:
-            self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+            self.logger.error(f"Failed to create experiment {experiment_spec.id}: {e}")
             raise
     
     async def delete_experiment(self, experiment_id: str) -> Dict[str, any]:

@@ -244,15 +244,15 @@ class PostgreSQLStorageBackend(StorageBackend):
         async def _create():
             async with self.session_factory() as session:
                 # Check if experiment already exists
-                stmt = select(Experiment).where(Experiment.id == experiment_spec.experiment_id)
+                stmt = select(Experiment).where(Experiment.id == experiment_spec.id)
                 result = await session.execute(stmt)
                 if result.scalar_one_or_none():
-                    raise ExperimentAlreadyExistsException(experiment_spec.experiment_id)
+                    raise ExperimentAlreadyExistsException(experiment_spec.id)
                 
                 # Create new experiment
                 created_at = datetime.now(timezone.utc)
                 experiment = Experiment(
-                    id=experiment_spec.experiment_id,
+                    id=experiment_spec.id,
                     name=experiment_spec.name,
                     description=experiment_spec.description,
                     spec_data=experiment_spec.model_dump(mode='json'),
@@ -264,7 +264,7 @@ class PostgreSQLStorageBackend(StorageBackend):
                 await session.commit()
                 
                 return {
-                    "experiment_id": experiment_spec.experiment_id,
+                    "experiment_id": experiment_spec.id,
                     "created_at": created_at
                 }
         
@@ -276,12 +276,12 @@ class PostgreSQLStorageBackend(StorageBackend):
         except IntegrityError as e:
             # Handle database constraint violations
             if "unique constraint" in str(e).lower():
-                raise ExperimentAlreadyExistsException(experiment_spec.experiment_id)
+                raise ExperimentAlreadyExistsException(experiment_spec.id)
             else:
-                self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+                self.logger.error(f"Failed to create experiment {experiment_spec.id}: {e}")
                 raise
         except Exception as e:
-            self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+            self.logger.error(f"Failed to create experiment {experiment_spec.id}: {e}")
             raise
     
     async def update_experiment_status(self, experiment_id: str, status: str) -> bool:

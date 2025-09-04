@@ -11,10 +11,21 @@ pytest tests/test_postgresql_storage_backend.py --postgresql-url="postgresql+asy
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Dict, Any
+
+# Check if asyncpg is installed
+try:
+    import asyncpg
+    ASYNCPG_AVAILABLE = True
+except ImportError:
+    ASYNCPG_AVAILABLE = False
+
+# Skip all tests in this module if asyncpg is not installed
+pytestmark = pytest.mark.skipif(not ASYNCPG_AVAILABLE, reason="asyncpg not installed")
 
 from ruckus_server.core.storage.postgresql import PostgreSQLStorageBackend
 from ruckus_server.core.storage.base import (
@@ -23,7 +34,9 @@ from ruckus_server.core.storage.base import (
     ExperimentHasJobsException
 )
 from ruckus_server.core.config import PostgreSQLSettings
-from ruckus_common.models import ExperimentSpec, RegisteredAgentInfo, AgentType, TaskType
+from ruckus_common.models import (ExperimentSpec, RegisteredAgentInfo, AgentType, TaskType, 
+                                  TaskSpec, FrameworkSpec, MetricsSpec, LLMGenerationParams, 
+                                  PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 def pytest_runtest_setup(item):
@@ -54,7 +67,7 @@ def postgresql_settings(request):
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgresql_storage(postgresql_settings):
     """Create PostgreSQL storage backend for testing."""
     backend = PostgreSQLStorageBackend(postgresql_settings)
@@ -79,13 +92,29 @@ async def postgresql_storage(postgresql_settings):
 def sample_experiment_spec():
     """Create sample experiment spec for testing."""
     return ExperimentSpec(
-        experiment_id="test-postgresql-experiment",
         name="Test PostgreSQL Experiment",
         description="An experiment for testing PostgreSQL backend",
-        models=["postgresql-model"],
-        task_type=TaskType.SUMMARIZATION,
-        tags=["type-test", "backend-postgresql"],
-        base_parameters={"learning_rate": 0.01, "epochs": 10, "batch_size": 32}
+        model="postgresql-model",
+        task=TaskSpec(
+            name="postgresql_task",
+            type=TaskType.LLM_GENERATION,
+            description="PostgreSQL test task",
+            params=LLMGenerationParams(
+                prompt_template=PromptTemplate(
+                    messages=[
+                        PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                        PromptMessage(role=PromptRole.USER, content="Test PostgreSQL backend.")
+                    ]
+                )
+            )
+        ),
+        framework=FrameworkSpec(
+            name=FrameworkName.TRANSFORMERS,
+            params={"learning_rate": 0.01, "epochs": 10, "batch_size": 32}
+        ),
+        metrics=MetricsSpec(
+            metrics={"type": "test", "backend": "postgresql"}
+        )
     )
 
 
@@ -205,7 +234,7 @@ class TestPostgreSQLExperimentOperations:
         # Verify result
         assert len(result) == 1
         assert isinstance(result[0], ExperimentSpec)
-        assert result[0].experiment_id == sample_experiment_spec.experiment_id
+        assert result[0].id == sample_experiment_spec.id
     
     @pytest.mark.asyncio
     async def test_list_experiments_multiple(self, postgresql_storage):
@@ -214,13 +243,29 @@ class TestPostgreSQLExperimentOperations:
         specs = []
         for i in range(3):
             spec = ExperimentSpec(
-                experiment_id=f"multi-test-{i}",
                 name=f"Multi Test {i}",
                 description=f"Multiple experiment test {i}",
-                models=[f"model-{i}"],
-                task_type=TaskType.SUMMARIZATION,
-                tags=[f"index-{i}"],
-                base_parameters={"value": i * 10}
+                model=f"model-{i}",
+                task=TaskSpec(
+                    name=f"multi_task_{i}",
+                    type=TaskType.LLM_GENERATION,
+                    description=f"Multiple test task {i}",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content=f"Process multiple test {i}.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"value": i * 10}
+                ),
+                metrics=MetricsSpec(
+                    metrics={f"index_{i}": "calculation"}
+                )
             )
             specs.append(spec)
             await postgresql_storage.create_experiment(spec)
@@ -230,8 +275,8 @@ class TestPostgreSQLExperimentOperations:
         
         # Verify result
         assert len(result) == 3
-        returned_ids = {spec.experiment_id for spec in result}
-        expected_ids = {spec.experiment_id for spec in specs}
+        returned_ids = {spec.id for spec in result}
+        expected_ids = {spec.id for spec in specs}
         assert returned_ids == expected_ids
     
     @pytest.mark.asyncio
@@ -526,37 +571,59 @@ class TestPostgreSQLComplexOperations:
     async def test_experiment_with_complex_data(self, postgresql_storage):
         """Test experiment with complex parameter structures."""
         complex_spec = ExperimentSpec(
-            experiment_id="complex-test",
             name="Complex Test",
             description="Testing complex parameter structures",
-            models=["complex-model"],
-            task_type=TaskType.GENERATION,
-            tags=["string-test", "integer-42", "float-3.14159", "boolean-True", "null-None"],
-            base_parameters={
-                "model": {
-                    "architecture": "transformer",
-                    "layers": [64, 32, 16],
-                    "config": {"dropout": 0.1, "activation": "relu"}
-                },
-                "training": {
-                    "optimizer": {"name": "adam", "lr": 1e-4},
-                    "schedule": {"type": "cosine", "warmup": 1000}
-                },
-                "unicode": "测试数据",
-                "scientific": 1e-5
-            }
+            model="complex-model",
+            task=TaskSpec(
+                name="complex_task",
+                type=TaskType.LLM_GENERATION,
+                description="Complex generation task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a complex assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Handle complex parameter structures.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={
+                    "model": {
+                        "architecture": "transformer",
+                        "layers": [64, 32, 16],
+                        "config": {"dropout": 0.1, "activation": "relu"}
+                    },
+                    "training": {
+                        "optimizer": {"name": "adam", "lr": 1e-4},
+                        "schedule": {"type": "cosine", "warmup": 1000}
+                    },
+                    "unicode": "测试数据",
+                    "scientific": 1e-5
+                }
+            ),
+            metrics=MetricsSpec(
+                metrics={
+                    "string_test": "calculation", 
+                    "integer_42": "counter",
+                    "float_3.14159": "timer", 
+                    "boolean_True": "flag", 
+                    "null_None": "optional"
+                }
+            )
         )
         
         # Create and retrieve experiment
         await postgresql_storage.create_experiment(complex_spec)
-        result = await postgresql_storage.get_experiment(complex_spec.experiment_id)
+        result = await postgresql_storage.get_experiment(complex_spec.id)
         
         # Verify complex data is preserved
-        assert result.tags["nested"]["deep"]["value"] == [1, 2, 3]
-        assert result.parameters["model"]["layers"] == [64, 32, 16]
-        assert result.parameters["training"]["optimizer"]["lr"] == 1e-4
-        assert result.parameters["unicode"] == "测试数据"
-        assert result.parameters["scientific"] == 1e-5
+        assert result.framework.params["model"]["layers"] == [64, 32, 16]
+        assert result.framework.params["training"]["optimizer"]["lr"] == 1e-4
+        assert result.framework.params["unicode"] == "测试数据"
+        assert result.framework.params["scientific"] == 1e-5
+        assert "string_test" in result.metrics.metrics
     
     @pytest.mark.asyncio
     async def test_concurrent_operations(self, postgresql_storage):
@@ -565,13 +632,29 @@ class TestPostgreSQLComplexOperations:
         specs = []
         for i in range(5):
             spec = ExperimentSpec(
-                experiment_id=f"concurrent-{i}",
                 name=f"Concurrent Test {i}",
                 description=f"Concurrent operation test {i}",
-                models=[f"concurrent-model-{i}"],
-                task_type=TaskType.CLASSIFICATION,
-                tags=[f"index-{i}"],
-                base_parameters={"value": i * 10}
+                model=f"concurrent-model-{i}",
+                task=TaskSpec(
+                    name=f"concurrent_task_{i}",
+                    type=TaskType.LLM_GENERATION,
+                    description=f"Concurrent test task {i}",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content=f"Handle concurrent test {i}.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"value": i * 10}
+                ),
+                metrics=MetricsSpec(
+                    metrics={f"index_{i}": "calculation"}
+                )
             )
             specs.append(spec)
         

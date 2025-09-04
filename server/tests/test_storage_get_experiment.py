@@ -1,13 +1,15 @@
 """Tests for storage backend get_experiment method."""
 
 import pytest
+import pytest_asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from ruckus_server.core.storage.sqlite import SQLiteStorageBackend
 from ruckus_server.core.storage.base import ExperimentNotFoundException
 from ruckus_server.core.config import SQLiteSettings
-from ruckus_common.models import ExperimentSpec
+from ruckus_common.models import (ExperimentSpec, TaskType, TaskSpec, FrameworkSpec, MetricsSpec, 
+                                  LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 @pytest.fixture
@@ -15,11 +17,11 @@ def storage_settings():
     """Create storage settings for testing."""
     from ruckus_server.core.config import SQLiteSettings
     return SQLiteSettings(
-        database_url="sqlite+aiosqlite:///:memory:"
+        database_path=":memory:"
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def storage_backend(storage_settings):
     """Create SQLite storage backend for testing."""
     backend = SQLiteStorageBackend(storage_settings)
@@ -30,15 +32,30 @@ async def storage_backend(storage_settings):
 @pytest.fixture
 def sample_experiment_spec():
     """Create sample experiment spec."""
-    from ruckus_common.models import TaskType
     return ExperimentSpec(
-        experiment_id="test-get-experiment",
-        name="Test Get Experiment", 
+        name="Test Get Experiment",
         description="An experiment for testing get functionality",
-        models=["test-model-1", "test-model-2"],
-        task_type=TaskType.SUMMARIZATION,
-        tags=["test", "version-1.0"],
-        base_parameters={"learning_rate": 0.01, "epochs": 10}
+        model="test-model",
+        task=TaskSpec(
+            name="test_get_task",
+            type=TaskType.LLM_GENERATION,
+            description="Test task for get functionality",
+            params=LLMGenerationParams(
+                prompt_template=PromptTemplate(
+                    messages=[
+                        PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                        PromptMessage(role=PromptRole.USER, content="Test get experiment functionality.")
+                    ]
+                )
+            )
+        ),
+        framework=FrameworkSpec(
+            name=FrameworkName.TRANSFORMERS,
+            params={"learning_rate": 0.01, "epochs": 10}
+        ),
+        metrics=MetricsSpec(
+            metrics={"test": "calculation", "version": "1.0"}
+        )
     )
 
 

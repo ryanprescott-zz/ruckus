@@ -238,16 +238,16 @@ class SQLiteStorageBackend(StorageBackend):
         async def _create():
             async with self.session_factory() as session:
                 # Check if experiment already exists
-                existing_stmt = select(Experiment).where(Experiment.id == experiment_spec.experiment_id)
+                existing_stmt = select(Experiment).where(Experiment.id == experiment_spec.id)
                 result = await session.execute(existing_stmt)
                 existing_experiment = result.scalar_one_or_none()
                 
                 if existing_experiment:
-                    raise ExperimentAlreadyExistsException(experiment_spec.experiment_id)
+                    raise ExperimentAlreadyExistsException(experiment_spec.id)
                 
                 # Create new experiment
                 experiment = Experiment(
-                    id=experiment_spec.experiment_id,
+                    id=experiment_spec.id,
                     name=experiment_spec.name,
                     description=experiment_spec.description,
                     spec_data=experiment_spec.model_dump(mode='json'),  # Store complete ExperimentSpec as JSON
@@ -267,7 +267,7 @@ class SQLiteStorageBackend(StorageBackend):
             # Re-raise this specific exception without wrapping
             raise
         except Exception as e:
-            self.logger.error(f"Failed to create experiment {experiment_spec.experiment_id}: {e}")
+            self.logger.error(f"Failed to create experiment {experiment_spec.id}: {e}")
             raise
     
     async def update_experiment_status(self, experiment_id: str, status: str) -> bool:

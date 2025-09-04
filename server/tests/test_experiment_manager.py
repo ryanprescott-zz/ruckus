@@ -101,7 +101,7 @@ class TestExperimentManager:
         # Mock storage backend
         created_at = datetime.now(timezone.utc)
         expected_result = {
-            "experiment_id": sample_experiment_spec.experiment_id,
+            "experiment_id": sample_experiment_spec.id,
             "created_at": created_at
         }
         experiment_manager.storage_backend.create_experiment = AsyncMock(return_value=expected_result)
@@ -122,7 +122,7 @@ class TestExperimentManager:
         with pytest.raises(ExperimentAlreadyExistsException) as exc_info:
             await experiment_manager.create_experiment(sample_experiment_spec)
         
-        assert exc_info.value.experiment_id == sample_experiment_spec.experiment_id
+        assert exc_info.value.experiment_id == sample_experiment_spec.id
 
     @pytest.mark.asyncio
     async def test_create_experiment_not_started(self, experiment_manager_settings, sample_experiment_spec):
@@ -148,13 +148,13 @@ class TestExperimentManager:
         """Test creating multiple experiments."""
         experiments = []
         for i in range(3):
-            spec = experiment_spec_factory(experiment_id=f"experiment-{i}")
+            spec = experiment_spec_factory(name=f"Experiment {i}")
             experiments.append(spec)
         
         # Mock storage backend
         def mock_create_experiment(spec):
             return {
-                "experiment_id": spec.experiment_id,
+                "experiment_id": spec.id,
                 "created_at": datetime.now(timezone.utc)
             }
         
@@ -167,7 +167,7 @@ class TestExperimentManager:
         
         assert len(results) == 3
         for i, result in enumerate(results):
-            assert result["experiment_id"] == f"experiment-{i}"
+            assert result["experiment_id"] == experiments[i].id
             assert "created_at" in result
 
     @pytest.mark.asyncio
@@ -245,20 +245,39 @@ root:
             assert manager._started is True
             
             # Use the manager
+            from ruckus_common.models import TaskSpec, FrameworkSpec, MetricsSpec, LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName
             spec = ExperimentSpec(
-                experiment_id="test-context",
                 name="Test Context",
-                models=["test-model"],
-                task_type=TaskType.SUMMARIZATION
+                model="test-model",
+                task=TaskSpec(
+                    name="test_task",
+                    type=TaskType.LLM_GENERATION,
+                    description="Test task",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="System prompt"),
+                                PromptMessage(role=PromptRole.USER, content="User prompt")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"latency": "timer"}
+                )
             )
             
             mock_storage.create_experiment.return_value = {
-                "experiment_id": "test-context",
+                "experiment_id": spec.id,
                 "created_at": datetime.now(timezone.utc)
             }
             
             result = await manager.create_experiment(spec)
-            assert result["experiment_id"] == "test-context"
+            assert result["experiment_id"] == spec.id
             
             await manager.stop()
             assert manager._started is False
@@ -268,7 +287,7 @@ root:
         """Test concurrent experiment creation."""
         # Create multiple experiment specs
         specs = [
-            experiment_spec_factory(experiment_id=f"concurrent-{i}")
+            experiment_spec_factory(name=f"Concurrent Test {i}")
             for i in range(5)
         ]
         
@@ -277,7 +296,7 @@ root:
             # Simulate some async work
             await asyncio.sleep(0.01)
             return {
-                "experiment_id": spec.experiment_id,
+                "experiment_id": spec.id,
                 "created_at": datetime.now(timezone.utc)
             }
         
@@ -294,7 +313,7 @@ root:
         # Verify all experiments were created
         assert len(results) == 5
         for i, result in enumerate(results):
-            assert result["experiment_id"] == f"concurrent-{i}"
+            assert result["experiment_id"] == specs[i].id
             assert "created_at" in result
 
     @pytest.mark.asyncio
@@ -411,7 +430,7 @@ root:
     @pytest.mark.asyncio
     async def test_concurrent_experiment_deletion(self, experiment_manager):
         """Test concurrent experiment deletion."""
-        experiment_ids = [f"concurrent-del-{i}" for i in range(5)]
+        experiment_ids = [f"exp_{str(i).zfill(6)}" for i in range(5)]
         
         # Mock storage backend to simulate successful deletion
         async def mock_delete_experiment(experiment_id):

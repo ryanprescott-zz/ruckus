@@ -197,7 +197,7 @@ class TestSQLiteStorageBackend:
         # Verify experiment was stored correctly by checking the database
         experiment = await sqlite_storage.get_experiment("complex-exp")
         assert experiment is not None
-        assert experiment["name"] == "Complex Experiment"
+        assert experiment.name == "Complex Experiment"
 
     @pytest.mark.asyncio
     async def test_create_experiment_serialization(self, sqlite_storage, sample_experiment_spec):
@@ -208,10 +208,9 @@ class TestSQLiteStorageBackend:
         experiment = await sqlite_storage.get_experiment(sample_experiment_spec.experiment_id)
         
         assert experiment is not None
-        assert experiment["id"] == sample_experiment_spec.experiment_id
-        assert experiment["name"] == sample_experiment_spec.name
-        assert experiment["description"] == sample_experiment_spec.description
-        assert experiment["status"] == "created"
+        assert experiment.experiment_id == sample_experiment_spec.experiment_id
+        assert experiment.name == sample_experiment_spec.name
+        assert experiment.description == sample_experiment_spec.description
         
         # Verify the spec_data contains serialized ExperimentSpec
         # Note: In a real implementation, you might want to deserialize this back to ExperimentSpec
@@ -246,7 +245,7 @@ class TestSQLiteStorageBackend:
         for i in range(5):
             experiment = await sqlite_storage.get_experiment(f"multi-exp-{i}")
             assert experiment is not None
-            assert experiment["name"] == f"Multi Experiment {i}"
+            assert experiment.name == f"Multi Experiment {i}"
 
     @pytest.mark.asyncio
     async def test_create_experiment_with_datetime_fields(self, sqlite_storage):
@@ -330,8 +329,9 @@ class TestSQLiteStorageBackend:
         assert "deleted_at" in result
         
         # Verify experiment is actually deleted
-        experiment = await sqlite_storage.get_experiment(sample_experiment_spec.experiment_id)
-        assert experiment is None
+        from ruckus_server.core.storage.base import ExperimentNotFoundException
+        with pytest.raises(ExperimentNotFoundException):
+            await sqlite_storage.get_experiment(sample_experiment_spec.experiment_id)
 
     @pytest.mark.asyncio
     async def test_delete_experiment_not_found(self, sqlite_storage):
@@ -411,9 +411,10 @@ class TestSQLiteStorageBackend:
             assert "deleted_at" in result
         
         # Verify none exist anymore
+        from ruckus_server.core.storage.base import ExperimentNotFoundException
         for experiment_id in experiment_ids:
-            experiment = await sqlite_storage.get_experiment(experiment_id)
-            assert experiment is None
+            with pytest.raises(ExperimentNotFoundException):
+                await sqlite_storage.get_experiment(experiment_id)
 
     @pytest.mark.asyncio
     async def test_delete_experiment_special_characters(self, sqlite_storage):
@@ -493,7 +494,7 @@ class TestSQLiteStorageBackend:
         experiments = await sqlite_storage.list_experiments()
         
         assert len(experiments) == 3
-        experiment_ids = [exp["id"] for exp in experiments]
+        experiment_ids = [exp.experiment_id for exp in experiments]
         for i in range(3):
             assert f"list-exp-{i}" in experiment_ids
 
@@ -514,19 +515,16 @@ class TestSQLiteStorageBackend:
         experiment = experiments[0]
         
         # Verify all expected fields are present
-        assert "id" in experiment
-        assert "name" in experiment
-        assert "description" in experiment
-        assert "spec_data" in experiment
-        assert "status" in experiment
-        assert "created_at" in experiment
-        assert "updated_at" in experiment
+        assert hasattr(experiment, "experiment_id")
+        assert hasattr(experiment, "name")
+        assert hasattr(experiment, "description")
+        assert hasattr(experiment, "created_at")
+        assert hasattr(experiment, "updated_at")
         
         # Verify values match
-        assert experiment["id"] == sample_experiment_spec.experiment_id
-        assert experiment["name"] == sample_experiment_spec.name
-        assert experiment["description"] == sample_experiment_spec.description
-        assert experiment["status"] == "created"
+        assert experiment.experiment_id == sample_experiment_spec.experiment_id
+        assert experiment.name == sample_experiment_spec.name
+        assert experiment.description == sample_experiment_spec.description
 
     @pytest.mark.asyncio
     async def test_create_job(self, sqlite_storage):

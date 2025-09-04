@@ -4,6 +4,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import hashlib
 
 
 # Enumerations
@@ -46,12 +47,7 @@ class MetricType(str, Enum):
 
 class TaskType(str, Enum):
     """Supported benchmark task types."""
-    SUMMARIZATION = "summarization"
-    CLASSIFICATION = "classification"
-    GENERATION = "generation"
-    QUESTION_ANSWERING = "qa"
-    TRANSLATION = "translation"
-    CUSTOM = "custom"
+    LLM_GENERATION = "llm_generation"
 
 
 class AgentStatusEnum(str, Enum):
@@ -245,51 +241,65 @@ class AggregationStrategy(BaseModel):
     group_by: List[str] = Field(default_factory=list, description="Fields to group results by")
     metrics_aggregation: Dict[str, str] = Field(default_factory=dict, description="Per-metric aggregation (mean, median, max, etc.)")
 
+class PromptRole(str, Enum):
+    """Roles for prompt messages."""
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+class PromptMessage(BaseModel):
+    """Message in a prompt template."""
+    role: PromptRole
+    content: str
+
+class PromptTemplate(BaseModel):
+    """Template for prompts used in generation tasks."""
+    messages: List[PromptMessage] = Field(default_factory=list)
+    extra_body: Optional[Dict] = None
+
+
+class TaskSpec(BaseModel):
+    """Specification for a task to be executed."""
+    name: str
+    type: TaskType
+    description: Optional[str] = None
+    params: Any
+
+
+class LLMGenerationParams(BaseModel):
+    """Parameters for LLM generation tasks."""
+    prompt_template: PromptTemplate
+
+
+class FrameworkSpec(BaseModel):
+    """Specification for a framework to be used."""
+    name: FrameworkName
+    params: Any
+
+
+class MetricsSpec(BaseModel):
+    """Specification for metrics to be collected."""
+    metrics: Dict
+
 # Enhanced Experiment Models
 class ExperimentSpec(TimestampedModel):
     """Enhanced specification for a benchmark experiment with orchestration support."""
-    experiment_id: str
     name: str
     description: Optional[str] = None
-    
-    # Target models and task specification
-    models: List[str]  # Models to benchmark
-    task_type: TaskType
-    task_config: Dict[str, Any] = Field(default_factory=dict)
-    
-    # Parameter sweep configuration
-    parameter_grid: ParameterGrid = Field(default_factory=ParameterGrid)
-    base_parameters: Dict[str, Any] = Field(default_factory=dict, description="Base parameters applied to all jobs")
-    
-    # Agent selection requirements
-    agent_requirements: AgentRequirements = Field(default_factory=AgentRequirements)
-    
-    # Output and aggregation specification
-    expected_output: ExpectedOutput = Field(default_factory=ExpectedOutput)
-    aggregation_strategy: AggregationStrategy = Field(default_factory=AggregationStrategy)
-    
-    # Execution configuration
-    priority: int = Field(default=0, ge=0, le=10)
-    timeout_seconds: int = Field(default=3600, gt=0)
-    max_retries: int = Field(default=2, ge=0)
-    max_parallel_jobs: Optional[int] = Field(default=None, description="Max concurrent jobs for this experiment")
-    
-    # Metadata
-    owner: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
-    constraints: Dict[str, Any] = Field(default_factory=dict)
+    model: str
+    task: TaskSpec
+    framework: FrameworkSpec
+    metrics: MetricsSpec
 
-    @field_validator("experiment_id")
-    @classmethod
-    def validate_experiment_id(cls, v):
-        if not v or not v.strip():
-            raise ValueError("experiment_id cannot be empty")
-        return v
-    
+    @property
+    def id(self) -> str:
+        """Generate a short experiment ID based on the name."""
+        name_hash = hashlib.md5(self.name.encode()).hexdigest()[:6]
+        return f"exp_{name_hash}"
+
     def estimate_job_count(self) -> int:
         """Estimate total number of jobs this experiment will generate."""
-        config_count = len(self.parameter_grid.generate_configurations())
-        return config_count * len(self.models)
+        return 1  # Simplified for new structure
 
 # Orchestration Execution Models
 class ExperimentExecution(TimestampedModel):

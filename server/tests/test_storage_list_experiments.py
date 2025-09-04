@@ -1,9 +1,10 @@
 """Tests for storage backend list_experiments method."""
 
 import pytest
+import pytest_asyncio
 from ruckus_server.core.storage.sqlite import SQLiteStorageBackend
 from ruckus_server.core.config import SQLiteSettings
-from ruckus_common.models import ExperimentSpec
+from ruckus_common.models import ExperimentSpec, TaskType
 
 
 @pytest.fixture
@@ -11,11 +12,11 @@ def storage_settings():
     """Create storage settings for testing."""
     from ruckus_server.core.config import SQLiteSettings
     return SQLiteSettings(
-        database_url="sqlite+aiosqlite:///:memory:"
+        database_path=":memory:"
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def storage_backend(storage_settings):
     """Create SQLite storage backend for testing."""
     backend = SQLiteStorageBackend(storage_settings)
