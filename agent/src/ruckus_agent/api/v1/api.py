@@ -7,7 +7,6 @@ from ruckus_common.models import (
     JobRequest, JobUpdate, JobResult, AgentType,
     AgentInfoResponse, AgentInfo, AgentStatus
 )
-from ruckus_agent.core.models import JobErrorReport
 
 router = APIRouter()
 
@@ -20,11 +19,10 @@ async def api_info():
         "type": "agent",
         "endpoints": [
             "/info",
-            "/execute",
+            "/execute", 
             "/status",
-            "/errors",
-            "/errors/{job_id}",
-            "/errors/clear",
+            "/results/{job_id}",
+            "/jobs/{job_id}",  # DELETE for cancellation
         ]
     }
 
@@ -50,11 +48,20 @@ async def get_agent_info(request: Request):
 async def execute_job(job_request: JobRequest, request: Request):
     """Execute a benchmark job."""
     agent = request.app.state.agent
-    # TODO: Queue job for execution
-    return {
-        "job_id": job_request.job_id,
-        "status": "accepted",
-    }
+    
+    # Actually execute the job using the agent
+    try:
+        await agent.execute_job(job_request)
+        return {
+            "job_id": job_request.job_id,
+            "status": "accepted",
+        }
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to execute job {job_request.job_id}: {str(e)}"
+        )
 
 
 @router.get("/status", response_model=AgentStatus)
@@ -64,35 +71,48 @@ async def get_status(request: Request):
     return await agent.get_status()
 
 
-@router.post("/cancel/{job_id}")
+@router.delete("/jobs/{job_id}")
 async def cancel_job(job_id: str, request: Request):
     """Cancel a running job."""
     agent = request.app.state.agent
-    # TODO: Implement job cancellation
-    return {"cancelled": False, "reason": "Not implemented"}
+    
+    try:
+        success, reason = await agent.cancel_job(job_id)
+        
+        if success:
+            return {
+                "cancelled": True, 
+                "job_id": job_id,
+                "message": f"Job {job_id} cancelled successfully",
+                "reason": reason
+            }
+        else:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Failed to cancel job {job_id}: {reason}"
+            )
+            
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error cancelling job {job_id}: {str(e)}"
+        )
 
 
-@router.get("/errors", response_model=List[JobErrorReport])
-async def get_error_reports(request: Request):
-    """Get all error reports from failed jobs."""
+
+
+@router.get("/results/{job_id}")
+async def get_job_results(job_id: str, request: Request):
+    """Get results for a completed job."""
     agent = request.app.state.agent
-    return await agent.get_error_reports()
-
-
-@router.get("/errors/{job_id}", response_model=Optional[JobErrorReport])
-async def get_error_report(job_id: str, request: Request):
-    """Get error report for a specific job."""
-    agent = request.app.state.agent
-    return await agent.get_error_report(job_id)
-
-
-@router.delete("/errors/clear")
-async def clear_error_reports(request: Request):
-    """Clear all error reports and reset crashed state."""
-    agent = request.app.state.agent
-    count = await agent.clear_error_reports()
-    return {
-        "message": f"Cleared {count} error reports",
-        "cleared_count": count,
-        "agent_reset": True
-    }
+    
+    # Get result from cache
+    result = agent.result_cache.get(job_id)
+    
+    if result is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Results not found for job {job_id}")
+    
+    return result

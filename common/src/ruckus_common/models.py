@@ -58,6 +58,15 @@ class AgentStatusEnum(str, Enum):
     UNAVAILABLE = "unavailable"  # Agent cannot be contacted
 
 
+class JobResultType(str, Enum):
+    """Types of job execution results."""
+    SUCCESS = "success"             # Job completed successfully
+    PARTIAL_SUCCESS = "partial"     # Some runs succeeded, some failed
+    CONSTRAINT_FAILURE = "constraint"  # Hardware/software constraint hit
+    EXECUTION_FAILURE = "execution"    # Code/runtime error
+    CANCELLED = "cancelled"         # Job was cancelled
+
+
 # System Detection Enums
 class OSType(str, Enum):
     """Operating system types."""
@@ -683,8 +692,11 @@ class AgentStatus(BaseModel):
     status: AgentStatusEnum
     running_jobs: List[str] = Field(default_factory=list, description="List of currently running job IDs")
     queued_jobs: List[str] = Field(default_factory=list, description="List of queued job IDs")
+    current_job_id: Optional[str] = Field(default=None, description="Currently executing job ID")
+    current_experiment_id: Optional[str] = Field(default=None, description="Currently executing experiment ID")
     uptime_seconds: float = Field(description="Agent uptime in seconds")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Current timestamp")
+    available_results: List[Dict[str, Any]] = Field(default_factory=list, description="List of available job results")
 
 
 class HealthStatus(BaseModel):
