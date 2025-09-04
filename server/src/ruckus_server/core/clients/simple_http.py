@@ -35,3 +35,22 @@ class SimpleHttpClient:
         except Exception as e:
             self.logger.debug(f"HTTP GET request to {url} failed: {e}")
             return None
+    
+    async def post_json(self, url: str, data: Dict[str, Any]) -> bool:
+        """Make a POST request with JSON data.
+        
+        Args:
+            url: URL to post to
+            data: JSON data to post
+            
+        Returns:
+            True if request succeeded (2xx status), False otherwise
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.post(url, json=data)
+                response.raise_for_status()
+                return True
+        except Exception as e:
+            self.logger.debug(f"HTTP POST request to {url} failed: {e}")
+            return False

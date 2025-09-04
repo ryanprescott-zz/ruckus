@@ -4,7 +4,7 @@ import asyncio
 import logging
 import logging.config
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
@@ -13,7 +13,7 @@ import yaml
 from .config import AgentManagerSettings
 from .storage.factory import storage_factory
 from .storage.base import StorageBackend
-from ruckus_common.models import RegisteredAgentInfo, AgentStatus, AgentStatusEnum
+from ruckus_common.models import RegisteredAgentInfo, AgentStatus, AgentStatusEnum, JobRequest, TaskType
 from .agent import AgentProtocolUtility
 from .clients.http import ConnectionError, ServiceUnavailableError
 from .clients.simple_http import SimpleHttpClient
@@ -326,11 +326,254 @@ class AgentManager:
         success = await self.storage.create_job(job_id, experiment_id, job_config)
         
         if success:
-            self.logger.info(f"Job {job_id} scheduled")
-            return job_id
+            # Now dispatch the job to a suitable agent
+            dispatched = await self.dispatch_job_to_agent(job_id, experiment_id, job_config)
+            if dispatched:
+                self.logger.info(f"Job {job_id} scheduled and dispatched")
+                return job_id
+            else:
+                self.logger.warning(f"Job {job_id} scheduled but dispatch failed")
+                return job_id  # Return ID even if dispatch fails for retry later
         else:
             self.logger.error(f"Failed to schedule job for experiment {experiment_id}")
             return None
+    
+    async def dispatch_job_to_agent(self, job_id: str, experiment_id: str, job_config: dict) -> bool:
+        """Dispatch a job to a suitable agent via HTTP POST.
+        
+        Args:
+            job_id: Unique job identifier
+            experiment_id: ID of the experiment this job belongs to
+            job_config: Job configuration dict containing model, framework, etc.
+            
+        Returns:
+            True if successfully dispatched, False otherwise
+        """
+        self.logger.info(f"Dispatching job {job_id} to agent")
+        
+        try:
+            # Find a suitable agent for this job
+            suitable_agent = await self._find_suitable_agent(job_config)
+            if not suitable_agent:
+                self.logger.error(f"No suitable agent found for job {job_id}")
+                return False
+            
+            # Create JobRequest from job_config
+            job_request = JobRequest(
+                job_id=job_id,
+                experiment_id=experiment_id,
+                model=job_config.get("model", "unknown"),
+                framework=job_config.get("framework", "pytorch"),
+                task_type=TaskType(job_config.get("task_type", TaskType.LLM_GENERATION)),
+                task_config=job_config.get("task_config", {}),
+                parameters=job_config.get("parameters", {}),
+                required_metrics=job_config.get("required_metrics", []),
+                optional_metrics=job_config.get("optional_metrics", []),
+                timeout_seconds=job_config.get("timeout_seconds", 3600),
+                runs_per_job=job_config.get("runs_per_job", 1),
+                callback_url=job_config.get("callback_url")
+            )
+            
+            # Dispatch job to agent via HTTP POST
+            agent_execute_url = urljoin(suitable_agent.agent_url.rstrip('/') + '/', 'api/v1/execute')
+            
+            # Use simple HTTP client for job dispatch
+            http_client = SimpleHttpClient(timeout_seconds=30.0)
+            
+            # Send POST request to agent
+            success = await http_client.post_json(
+                url=agent_execute_url,
+                data=job_request.model_dump() if hasattr(job_request, 'model_dump') else job_request.__dict__
+            )
+            
+            if success:
+                self.logger.info(f"Successfully dispatched job {job_id} to agent {suitable_agent.agent_id}")
+                
+                # Update job status in storage to "dispatched"
+                if self.storage:
+                    await self.storage.update_job_status(job_id, "dispatched", suitable_agent.agent_id)
+                
+                return True
+            else:
+                self.logger.error(f"Failed to dispatch job {job_id} to agent {suitable_agent.agent_id}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error dispatching job {job_id}: {e}")
+            return False
+    
+    async def _find_suitable_agent(self, job_config: dict) -> Optional[RegisteredAgentInfo]:
+        """Find a suitable agent for the given job configuration.
+        
+        Args:
+            job_config: Job configuration dict
+            
+        Returns:
+            RegisteredAgentInfo of suitable agent, or None if no suitable agent found
+        """
+        try:
+            # Get all registered agents
+            agents = await self.list_registered_agent_info()
+            if not agents:
+                self.logger.warning("No agents registered")
+                return None
+            
+            # For now, find the first agent that is IDLE
+            # TODO: Add more sophisticated matching based on:
+            # - Required GPU memory for model
+            # - Framework support 
+            # - Agent capabilities
+            # - Current load/queue status
+            
+            for agent in agents:
+                try:
+                    # Check agent status
+                    agent_status = await self.get_registered_agent_status(agent.agent_id)
+                    
+                    if agent_status.status == AgentStatusEnum.IDLE:
+                        self.logger.info(f"Found suitable idle agent: {agent.agent_id}")
+                        return agent
+                        
+                except Exception as e:
+                    self.logger.debug(f"Could not get status for agent {agent.agent_id}: {e}")
+                    continue
+            
+            self.logger.warning("No idle agents available")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error finding suitable agent: {e}")
+            return None
+    
+    async def poll_agents_for_results(self) -> Dict[str, Any]:
+        """Poll all registered agents for completed job results.
+        
+        Returns:
+            Dict with statistics about results retrieved
+        """
+        retrieved_count = 0
+        error_count = 0
+        processed_jobs = []
+        
+        self.logger.debug("Starting agent polling for results")
+        
+        try:
+            # Get all registered agents
+            agents = await self.list_registered_agent_info()
+            if not agents:
+                return {"retrieved": 0, "errors": 0, "agents_polled": 0}
+            
+            for agent in agents:
+                try:
+                    # Get agent status to check for available results
+                    agent_status = await self.get_registered_agent_status(agent.agent_id)
+                    
+                    if not agent_status.available_results:
+                        continue  # No results available
+                    
+                    # Process each available result
+                    for result_info in agent_status.available_results:
+                        job_id = result_info.get("job_id")
+                        if not job_id or job_id in processed_jobs:
+                            continue  # Skip if no job_id or already processed
+                        
+                        # Retrieve the actual result from agent
+                        success = await self._retrieve_job_result(agent, job_id)
+                        if success:
+                            retrieved_count += 1
+                            processed_jobs.append(job_id)
+                            self.logger.info(f"Retrieved result for job {job_id} from agent {agent.agent_id}")
+                        else:
+                            error_count += 1
+                            self.logger.warning(f"Failed to retrieve result for job {job_id} from agent {agent.agent_id}")
+                            
+                except Exception as e:
+                    error_count += 1
+                    self.logger.debug(f"Error polling agent {agent.agent_id}: {e}")
+                    continue
+            
+            stats = {
+                "retrieved": retrieved_count,
+                "errors": error_count,
+                "agents_polled": len(agents),
+                "processed_jobs": processed_jobs
+            }
+            
+            if retrieved_count > 0:
+                self.logger.info(f"Poll complete: retrieved {retrieved_count} results, {error_count} errors")
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Error during agent polling: {e}")
+            return {"retrieved": 0, "errors": 1, "agents_polled": 0}
+    
+    async def _retrieve_job_result(self, agent: RegisteredAgentInfo, job_id: str) -> bool:
+        """Retrieve a specific job result from an agent and store it.
+        
+        Args:
+            agent: Agent to retrieve result from
+            job_id: ID of job to retrieve result for
+            
+        Returns:
+            True if successfully retrieved and stored, False otherwise
+        """
+        try:
+            # Build result endpoint URL
+            result_url = urljoin(agent.agent_url.rstrip('/') + '/', f'api/v1/results/{job_id}')
+            
+            # Retrieve result from agent
+            http_client = SimpleHttpClient(timeout_seconds=30.0)
+            result_data = await http_client.get_json(result_url)
+            
+            if result_data is None:
+                self.logger.warning(f"No result data returned for job {job_id} from agent {agent.agent_id}")
+                return False
+            
+            # Store result in our storage backend
+            if self.storage:
+                success = await self.storage.store_job_result(job_id, result_data)
+                if success:
+                    # Update job status to completed
+                    await self.storage.update_job_status(job_id, "completed", agent.agent_id)
+                    return True
+                else:
+                    self.logger.error(f"Failed to store result for job {job_id}")
+                    return False
+            else:
+                self.logger.error("Storage backend not initialized")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error retrieving result for job {job_id} from agent {agent.agent_id}: {e}")
+            return False
+    
+    async def start_result_polling_task(self, poll_interval_seconds: float = 30.0) -> asyncio.Task:
+        """Start a background task to periodically poll agents for results.
+        
+        Args:
+            poll_interval_seconds: How often to poll agents in seconds
+            
+        Returns:
+            The background task handle
+        """
+        async def polling_loop():
+            self.logger.info(f"Starting result polling loop (interval: {poll_interval_seconds}s)")
+            
+            while True:
+                try:
+                    await asyncio.sleep(poll_interval_seconds)
+                    await self.poll_agents_for_results()
+                except asyncio.CancelledError:
+                    self.logger.info("Result polling task cancelled")
+                    break
+                except Exception as e:
+                    self.logger.error(f"Error in result polling loop: {e}")
+                    # Continue despite errors
+        
+        task = asyncio.create_task(polling_loop())
+        self.logger.info("Result polling background task started")
+        return task
     
     async def get_experiment_status(self, experiment_id: str) -> Optional[dict]:
         """Get the status of an experiment.

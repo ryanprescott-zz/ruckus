@@ -9,12 +9,13 @@ from datetime import datetime, timezone
 
 from ruckus_common.models import (
     JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
-    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage
+    SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage,
+    JobResultType
 )
 from .config import Settings
-from .models import JobErrorReport
 from .detector import AgentDetector
 from .storage import AgentStorage, InMemoryStorage
+from .result_cache import TTLResultCache
 from ..utils.error_reporter import ErrorReporter
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,12 @@ class Agent:
         
         # Error reporting
         self.error_reporter = ErrorReporter(self.agent_id)
-        self.error_reports: Dict[str, JobErrorReport] = {}  # Store error reports for server retrieval
 
+        # Result cache
+        self.result_cache = TTLResultCache(
+            ttl_hours=settings.result_cache_ttl_hours,
+            cleanup_interval_minutes=settings.result_cache_cleanup_interval_minutes
+        )
 
         # Background tasks
         self.tasks: List[asyncio.Task] = []
@@ -54,6 +59,9 @@ class Agent:
         """Start the agent."""
         logger.info(f"Starting agent {self.agent_id}")
 
+        # Start result cache
+        await self.result_cache.start()
+
         # Detect capabilities
         await self._detect_capabilities()
 
@@ -63,6 +71,9 @@ class Agent:
     async def stop(self):
         """Stop the agent."""
         logger.info(f"Stopping agent {self.agent_id}")
+
+        # Stop result cache
+        await self.result_cache.stop()
 
         # Cancel background tasks
         for task in self.tasks:
@@ -119,6 +130,59 @@ class Agent:
         start_time = datetime.now(timezone.utc)
         error_report = None
         
+        # Calculate timeout from config and job request
+        timeout_seconds = min(
+            job.timeout_seconds,  # Job-specific timeout
+            int(self.settings.job_max_execution_hours * 3600)  # Agent max timeout
+        )
+        
+        logger.info(f"Job {job.job_id} timeout set to {timeout_seconds} seconds")
+        
+        try:
+            # Execute with timeout
+            await asyncio.wait_for(self._execute_job_impl(job, start_time), timeout=timeout_seconds)
+            
+        except asyncio.TimeoutError:
+            logger.error(f"Job {job.job_id} timed out after {timeout_seconds} seconds")
+            
+            # Create timeout result
+            timeout_result = {
+                "job_id": job.job_id,
+                "experiment_id": job.experiment_id,
+                "status": "timeout",
+                "started_at": start_time.isoformat(),
+                "timeout_at": datetime.now(timezone.utc).isoformat(),
+                "duration_seconds": timeout_seconds,
+                "timeout_seconds": timeout_seconds,
+                "error": f"Job execution exceeded timeout of {timeout_seconds} seconds"
+            }
+            
+            # Cache the timeout result
+            self.result_cache.store(
+                job_id=job.job_id,
+                result=timeout_result,
+                result_type=JobResultType.EXECUTION_FAILURE
+            )
+            
+            # Perform cleanup
+            await self._cleanup_failed_job(job, asyncio.TimeoutError("Job execution timeout"))
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in job {job.job_id}: {e}")
+            raise
+            
+        finally:
+            # Clean up job tracking and running jobs
+            await self.error_reporter.cleanup_job_tracking(job.job_id)
+            self.running_jobs.pop(job.job_id, None)
+    
+    async def _execute_job_impl(self, job: JobRequest, start_time: datetime):
+        """Internal job execution implementation (wrapped with timeout).
+        
+        Args:
+            job: Job to execute
+            start_time: When job execution started
+        """
         try:
             # Start job tracking for error reporting
             await self.error_reporter.start_job_tracking(job.job_id, "initializing")
@@ -132,17 +196,42 @@ class Agent:
             # Update job stage
             await self.error_reporter.update_job_stage(job.job_id, "starting")
             
+            # Check for cancellation before starting execution
+            if self._is_job_cancelled(job.job_id):
+                return await self._handle_job_cancellation(job, start_time)
+            
             # Execute multi-run job
             if job.runs_per_job == 1:
                 # Single run job - simpler path
                 result = await self._execute_single_run(job, run_id=0, is_cold_start=True)
                 job_result = self._convert_single_to_job_result(result, job, start_time)
+                
+                # Determine result type
+                if result.error is None:
+                    result_type = JobResultType.SUCCESS
+                else:
+                    result_type = JobResultType.EXECUTION_FAILURE
+                    
             else:
                 # Multi-run job - with cold start separation
                 job_result = await self._execute_multi_run_job(job, start_time)
+                
+                # Determine result type based on success/failure ratio
+                if job_result.failed_runs == 0:
+                    result_type = JobResultType.SUCCESS
+                elif job_result.successful_runs == 0:
+                    result_type = JobResultType.EXECUTION_FAILURE
+                else:
+                    result_type = JobResultType.PARTIAL_SUCCESS
             
+            # Cache the job result
+            cached_job_id = self.result_cache.store(
+                job_id=job.job_id,
+                result=job_result.model_dump() if hasattr(job_result, 'model_dump') else job_result.__dict__,
+                result_type=result_type
+            )
             
-            logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully")
+            logger.info(f"Agent {self.agent_id} job {job.job_id} completed successfully and cached as {cached_job_id}")
             
             return job_result
             
@@ -164,28 +253,72 @@ class Agent:
                     model_size_gb=None  # TODO: Get from model discovery
                 )
                 
-                # Store error report for server retrieval
-                self.error_reports[job.job_id] = error_report
-                
                 # Attempt cleanup
                 cleanup_actions = await self._cleanup_failed_job(job, e)
                 error_report.cleanup_actions = cleanup_actions
                 error_report.recovery_successful = True  # If we reach here, cleanup worked
                 
-                logger.info(f"Generated error report for job {job.job_id}: {error_report.error_type}")
+                # Determine error result type based on error category
+                if "OutOfMemoryError" in str(e) or "CUDA out of memory" in str(e):
+                    result_type = JobResultType.CONSTRAINT_FAILURE
+                elif "model not found" in str(e).lower() or "framework" in str(e).lower():
+                    result_type = JobResultType.CONSTRAINT_FAILURE
+                else:
+                    result_type = JobResultType.EXECUTION_FAILURE
+                
+                # Create error result object
+                error_result = {
+                    "job_id": job.job_id,
+                    "experiment_id": job.experiment_id,
+                    "status": "failed",
+                    "started_at": start_time.isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "duration_seconds": (datetime.now(timezone.utc) - start_time).total_seconds(),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "error_report": error_report.model_dump() if hasattr(error_report, 'model_dump') else error_report.__dict__,
+                    "cleanup_actions": cleanup_actions,
+                    "recovery_successful": True
+                }
+                
+                # Cache the error result
+                cached_job_id = self.result_cache.store(
+                    job_id=job.job_id,
+                    result=error_result,
+                    result_type=result_type
+                )
+                
+                logger.info(f"Generated error report for job {job.job_id}: {error_report.error_type}, cached as {cached_job_id}")
                 
             except Exception as cleanup_error:
                 logger.error(f"Failed to generate error report or cleanup job {job.job_id}: {cleanup_error}")
+                
+                # Create minimal error result for catastrophic failures
+                catastrophic_error_result = {
+                    "job_id": job.job_id,
+                    "experiment_id": job.experiment_id,
+                    "status": "failed",
+                    "started_at": start_time.isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "duration_seconds": (datetime.now(timezone.utc) - start_time).total_seconds(),
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "cleanup_error": str(cleanup_error),
+                    "recovery_successful": False
+                }
+                
+                # Cache the catastrophic error
+                self.result_cache.store(
+                    job_id=job.job_id,
+                    result=catastrophic_error_result,
+                    result_type=JobResultType.EXECUTION_FAILURE
+                )
+                
                 # Mark agent as crashed if cleanup fails
                 self.crashed = True
                 self.crash_reason = f"Failed cleanup after job {job.job_id}: {cleanup_error}"
             
             logger.error(f"Job {job.job_id} failed: {str(e)}")
-            
-        finally:
-            # Clean up job tracking and running jobs
-            await self.error_reporter.cleanup_job_tracking(job.job_id)
-            self.running_jobs.pop(job.job_id, None)
             
             # Perform comprehensive cleanup and verify idle state
             await self._perform_comprehensive_cleanup()
@@ -667,13 +800,30 @@ class Agent:
         # Calculate uptime
         uptime_seconds = (datetime.now(timezone.utc) - self.startup_time).total_seconds()
         
+        # Get current job and experiment info
+        current_job_id = None
+        current_experiment_id = None
+        if self.running_jobs:
+            # Get the first running job (since we only handle one job at a time)
+            current_job_id = next(iter(self.running_jobs.keys()))
+            job_info = self.running_jobs[current_job_id]
+            if isinstance(job_info, dict) and "job" in job_info:
+                job_request = job_info["job"]
+                current_experiment_id = getattr(job_request, "experiment_id", None)
+        
+        # Get available results from cache
+        available_results = self.result_cache.list_available_results()
+        
         return AgentStatus(
             agent_id=self.agent_id,
             status=status,
             running_jobs=list(self.running_jobs.keys()),
             queued_jobs=self.queued_job_ids.copy(),  # Return copy of the list
+            current_job_id=current_job_id,
+            current_experiment_id=current_experiment_id,
             uptime_seconds=uptime_seconds,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
+            available_results=available_results
         )
 
     async def queue_job(self, job: JobRequest):
@@ -688,22 +838,110 @@ class Agent:
             logger.error(f"Agent {self.agent_id} failed to queue job {job.job_id}: {e}")
             raise
 
-    async def get_error_reports(self) -> List[JobErrorReport]:
-        """Get all stored error reports."""
-        return list(self.error_reports.values())
     
-    async def get_error_report(self, job_id: str) -> Optional[JobErrorReport]:
-        """Get error report for a specific job."""
-        return self.error_reports.get(job_id)
+    async def cancel_job(self, job_id: str) -> tuple[bool, str]:
+        """Cancel a running job.
+        
+        Args:
+            job_id: ID of the job to cancel
+            
+        Returns:
+            Tuple of (success, reason_message)
+        """
+        self.logger.info(f"Agent {self.agent_id} requested to cancel job {job_id}")
+        
+        # Check if job is currently running
+        if job_id not in self.running_jobs:
+            # Check if it's queued
+            if job_id in self.queued_job_ids:
+                try:
+                    self.queued_job_ids.remove(job_id)
+                    
+                    # Create cancellation result
+                    cancel_result = {
+                        "job_id": job_id,
+                        "status": "cancelled",
+                        "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                        "reason": "Cancelled before execution started"
+                    }
+                    
+                    # Cache the cancellation result
+                    self.result_cache.store(
+                        job_id=job_id,
+                        result=cancel_result,
+                        result_type=JobResultType.CANCELLED
+                    )
+                    
+                    return True, "Job cancelled from queue before execution"
+                    
+                except ValueError:
+                    return False, "Job not found in queue"
+            else:
+                return False, f"Job {job_id} not found (not running or queued)"
+        
+        try:
+            # Job is running - set a cancellation flag
+            job_info = self.running_jobs[job_id]
+            job_info["cancellation_requested"] = True
+            job_info["cancellation_time"] = datetime.now(timezone.utc)
+            
+            self.logger.info(f"Cancellation requested for running job {job_id}")
+            
+            # The actual job execution will check this flag and handle cancellation
+            # For now, we'll let the job execution loop handle the cancellation
+            
+            return True, "Cancellation requested for running job"
+            
+        except Exception as e:
+            self.logger.error(f"Error cancelling job {job_id}: {e}")
+            return False, f"Error during cancellation: {str(e)}"
     
-    async def clear_error_reports(self) -> int:
-        """Clear all error reports and return count cleared."""
-        count = len(self.error_reports)
-        self.error_reports.clear()
-        self.crashed = False  # Reset crashed state when reports are cleared
-        self.crash_reason = None
-        logger.info(f"Cleared {count} error reports, reset crashed state")
-        return count
+    def _is_job_cancelled(self, job_id: str) -> bool:
+        """Check if a job has been requested to be cancelled.
+        
+        Args:
+            job_id: ID of the job to check
+            
+        Returns:
+            True if job cancellation was requested, False otherwise
+        """
+        if job_id not in self.running_jobs:
+            return False
+        
+        job_info = self.running_jobs[job_id]
+        return job_info.get("cancellation_requested", False)
+    
+    async def _handle_job_cancellation(self, job: JobRequest, start_time: datetime) -> None:
+        """Handle a cancelled job by creating cancellation result.
+        
+        Args:
+            job: The job that was cancelled
+            start_time: When the job started
+        """
+        self.logger.info(f"Handling cancellation for job {job.job_id}")
+        
+        # Create cancellation result
+        cancel_result = {
+            "job_id": job.job_id,
+            "experiment_id": job.experiment_id,
+            "status": "cancelled",
+            "started_at": start_time.isoformat(),
+            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+            "duration_seconds": (datetime.now(timezone.utc) - start_time).total_seconds(),
+            "reason": "Job execution cancelled by user request"
+        }
+        
+        # Cache the cancellation result
+        self.result_cache.store(
+            job_id=job.job_id,
+            result=cancel_result,
+            result_type=JobResultType.CANCELLED
+        )
+        
+        # Perform cleanup
+        await self._cleanup_failed_job(job, Exception("Job cancelled"))
+        
+        self.logger.info(f"Job {job.job_id} cancellation handled and cached")
     
     async def execute_job(self, job: JobRequest):
         """Execute a job directly (for testing purposes)."""

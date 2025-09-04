@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Job Execution
     max_concurrent_jobs: int = Field(default=1, description="Maximum number of jobs that can run concurrently")
     job_timeout_default: int = Field(default=3600, description="Default timeout in seconds for job execution")
+    job_max_execution_hours: float = Field(default=48.0, description="Maximum execution time in hours for any single job")
+    
+    # Result Cache
+    result_cache_ttl_hours: int = Field(default=24, description="Time-to-live for cached job results in hours")
+    result_cache_cleanup_interval_minutes: int = Field(default=5, description="Interval in minutes for cleaning up expired results")
 
     # Model Management
     model_path: str = Field(default="/ruckus/models", description="Directory path where models are discovered and accessed (typically volume mounted)")
