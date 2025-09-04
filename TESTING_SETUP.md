@@ -19,36 +19,68 @@
 # Clone and navigate to RUCKUS
 git clone <your-repo-url>
 cd ruckus
-
-# Create conda environment (recommended)
-conda create -n ruckus-test python=3.12 -y
-conda activate ruckus-test
-
-# OR create venv environment
-python -m venv ruckus-test
-source ruckus-test/bin/activate  # Linux/Mac
-# ruckus-test\Scripts\activate   # Windows
 ```
 
-## Step 2: Install Dependencies
+## Step 2: Create Server Environment
 
 ```bash
-# Install PyTorch with CUDA support (adjust CUDA version as needed)
+# Create server environment from environment.yml
+cd server
+conda env create -f environment.yml
+conda activate ruckus-server
+cd ..
+```
+
+**✅ Expected Output:** Should install Python 3.12, FastAPI, SQLAlchemy, and all server dependencies.
+
+## Step 3: Create Agent Environment
+
+```bash
+# Create agent environment from environment.yml
+cd agent
+conda env create -f environment.yml
+conda activate ruckus-agent
+cd ..
+```
+
+**✅ Expected Output:** Should install Python 3.12, PyTorch, Transformers, vLLM, and all ML dependencies.
+
+**Note:** The agent environment includes:
+- **PyTorch** (CPU version by default - we'll add CUDA support next)
+- **Transformers, Accelerate, Datasets** for ML
+- **vLLM** for high-performance inference (great for testing on NVIDIA hardware!)
+- **pynvml, GPUtil** for GPU monitoring
+- **All testing and development tools** (pytest, black, mypy, etc.)
+
+**Bonus:** If you want to test with vLLM instead of Transformers, set `RUCKUS_AGENT_ENABLE_VLLM=true` in your agent.env file!
+
+## Step 4: Add CUDA Support (Agent Environment)
+
+```bash
+# Activate agent environment and add CUDA PyTorch
+conda activate ruckus-agent
+
+# Install CUDA-enabled PyTorch (adjust CUDA version as needed)
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-# OR: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# OR for CUDA 11.8: pytorch-cuda=11.8
+# OR for CUDA 12.4: pytorch-cuda=12.4
 
-# Install ML frameworks
-pip install transformers accelerate datasets
-
-# Install RUCKUS packages in development mode
-cd common && pip install -e . && cd ..
-cd agent && pip install -e . && cd ..
-cd server && pip install -e . && cd ..
+# Verify CUDA is available
+python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('CUDA devices:', torch.cuda.device_count())"
 ```
 
-## Step 3: Download Test Model
+**✅ Expected Output:**
+```
+CUDA available: True
+CUDA devices: 1 (or more)
+```
+
+## Step 5: Download Test Model
 
 ```bash
+# Activate agent environment (has transformers installed)
+conda activate ruckus-agent
+
 # Create models directory
 mkdir -p ~/models
 
@@ -59,16 +91,16 @@ import os
 print('Downloading distilgpt2 model...')
 model = GPT2LMHeadModel.from_pretrained('distilgpt2')
 tokenizer = GPT2Tokenizer.from_pretrained('distilgpt2')
-os.makedirs('~/models/distilgpt2', exist_ok=True)
-model.save_pretrained('~/models/distilgpt2')
-tokenizer.save_pretrained('~/models/distilgpt2')
+os.makedirs(os.path.expanduser('~/models/distilgpt2'), exist_ok=True)
+model.save_pretrained(os.path.expanduser('~/models/distilgpt2'))
+tokenizer.save_pretrained(os.path.expanduser('~/models/distilgpt2'))
 print('Model saved to ~/models/distilgpt2')
 "
 ```
 
 **✅ Expected Output:** Should see model download progress and "Model saved" message.
 
-## Step 4: Create Configuration Files
+## Step 6: Create Configuration Files
 
 ### Server Configuration (`server.env`)
 ```bash
@@ -125,21 +157,24 @@ RUCKUS_AGENT_LOG_FORMAT=text
 EOF
 ```
 
-## Step 5: Create Required Directories
+## Step 7: Create Required Directories
 
 ```bash
 mkdir -p data static
 ```
 
-## Step 6: Start the Server
+## Step 8: Start the Server
 
 ### Terminal 1: Start RUCKUS Server
 ```bash
-# Set Python path and start server
-export PYTHONPATH=/path/to/ruckus/server/src:$PYTHONPATH
+# Activate server environment and start
+conda activate ruckus-server
+cd server
+
+# Start server with environment configuration
 python -c "
 from dotenv import load_dotenv
-load_dotenv('server.env')
+load_dotenv('../server.env')
 import uvicorn
 from ruckus_server.main import app
 uvicorn.run(app, host='0.0.0.0', port=8000, log_level='info')
@@ -163,15 +198,18 @@ curl http://localhost:8000/api/v1/
 # Expected: {"version": "v1", "endpoints": ["/agents", "/jobs", "/experiments"]}
 ```
 
-## Step 7: Start the Agent
+## Step 9: Start the Agent
 
 ### Terminal 2: Start RUCKUS Agent
 ```bash
-# Set Python path and start agent
-export PYTHONPATH=/path/to/ruckus/agent/src:$PYTHONPATH
+# Activate agent environment and start
+conda activate ruckus-agent
+cd agent
+
+# Start agent with environment configuration
 python -c "
 from dotenv import load_dotenv
-load_dotenv('agent.env')
+load_dotenv('../agent.env')
 import uvicorn
 from ruckus_agent.main import app
 uvicorn.run(app, host='0.0.0.0', port=8081, log_level='info')
@@ -197,7 +235,7 @@ curl http://localhost:8081/api/v1/info | jq .
 - **Model discovery** showing distilgpt2 model
 - **Framework capabilities** with CUDA support
 
-## Step 8: Register Agent with Server
+## Step 10: Register Agent with Server
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/agents/register \
@@ -213,7 +251,7 @@ curl -X POST http://localhost:8000/api/v1/agents/register \
 }
 ```
 
-## Step 9: Test Job Execution
+## Step 11: Test Job Execution
 
 ### Submit Test Job
 ```bash
@@ -312,7 +350,7 @@ curl -s http://localhost:8081/api/v1/results/gpu-test-1 | jq .
 }
 ```
 
-## Step 10: Test Error Scenarios
+## Step 12: Test Error Scenarios
 
 ### Test Timeout (should timeout after 30 seconds)
 ```bash
@@ -335,7 +373,7 @@ curl -X POST http://localhost:8081/api/v1/execute \
 - Status should show "timeout" 
 - Results should have `"result_type": "execution"`
 
-## Step 11: Swagger UI Testing
+## Step 13: Swagger UI Testing
 
 ### Access Swagger Documentation
 1. **Server Swagger:** http://localhost:8000/docs
