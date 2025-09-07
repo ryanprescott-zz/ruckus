@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from ..models import CreateExperimentRequest, CreateExperimentResponse, DeleteExperimentResponse, ListExperimentsResponse, ExperimentSummary, GetExperimentResponse
-from ruckus_server.core.storage.base import ExperimentAlreadyExistsException, ExperimentNotFoundException, ExperimentHasJobsException
+from ruckus_server.core.storage.base import ExperimentAlreadyExistsException, ExperimentNotFoundException
 from ruckus_common.models import ExperimentSpec
 
 router = APIRouter()
@@ -157,12 +157,6 @@ async def delete_experiment(experiment_id: str, request: Request):
         raise HTTPException(
             status_code=404,
             detail=f"Experiment {e.experiment_id} not found"
-        )
-    except ExperimentHasJobsException as e:
-        # Experiment has jobs - return 409 conflict
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot delete experiment {e.experiment_id}: it has {e.job_count} associated job(s)"
         )
     except ValueError as e:
         # Invalid request data or other validation errors

@@ -28,13 +28,6 @@ class ExperimentNotFoundException(Exception):
         super().__init__(f"Experiment {experiment_id} not found")
 
 
-class ExperimentHasJobsException(Exception):
-    """Exception raised when attempting to delete an experiment that has associated jobs."""
-    
-    def __init__(self, experiment_id: str, job_count: int):
-        self.experiment_id = experiment_id
-        self.job_count = job_count
-        super().__init__(f"Cannot delete experiment {experiment_id}: it has {job_count} associated job(s)")
 
 
 class StorageBackendType(str, Enum):
@@ -73,22 +66,6 @@ class Experiment(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-
-class Job(Base):
-    """Job database model."""
-    __tablename__ = "jobs"
-    
-    id = Column(String, primary_key=True)
-    experiment_id = Column(String)
-    agent_id = Column(String)
-    config = Column(JSON)
-    status = Column(String, default="scheduled")
-    results = Column(JSON)
-    error_message = Column(Text)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 class StorageBackend(ABC):
@@ -227,42 +204,6 @@ class StorageBackend(ABC):
             
         Raises:
             ExperimentNotFoundException: If experiment with given ID doesn't exist
-            ExperimentHasJobsException: If experiment has associated jobs
         """
         pass
     
-    # Job management
-    @abstractmethod
-    async def create_job(self, job_id: str, experiment_id: str, 
-                        config: Dict[str, Any]) -> bool:
-        """Create a new job."""
-        pass
-    
-    @abstractmethod
-    async def assign_job_to_agent(self, job_id: str, agent_id: str) -> bool:
-        """Assign a job to an agent."""
-        pass
-    
-    @abstractmethod
-    async def update_job_status(self, job_id: str, status: str, 
-                               results: Optional[Dict[str, Any]] = None,
-                               error_message: Optional[str] = None) -> bool:
-        """Update job status and results."""
-        pass
-    
-    @abstractmethod
-    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
-        """Get job by ID."""
-        pass
-    
-    @abstractmethod
-    async def list_jobs(self, experiment_id: Optional[str] = None,
-                       agent_id: Optional[str] = None,
-                       status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List jobs with optional filtering."""
-        pass
-    
-    @abstractmethod
-    async def get_jobs_for_agent(self, agent_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get jobs assigned to a specific agent."""
-        pass

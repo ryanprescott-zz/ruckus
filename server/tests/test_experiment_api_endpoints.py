@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
-from ruckus_server.core.storage.base import ExperimentAlreadyExistsException, ExperimentNotFoundException, ExperimentHasJobsException
-from ruckus_common.models import ExperimentSpec, TaskType
+from ruckus_server.core.storage.base import ExperimentAlreadyExistsException, ExperimentNotFoundException
+from ruckus_common.models import (ExperimentSpec, TaskType, TaskSpec, FrameworkSpec, MetricsSpec, 
+                                  LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 class TestExperimentEndpoints:
@@ -18,7 +19,7 @@ class TestExperimentEndpoints:
         # Mock the experiment manager method
         test_client_with_experiment_manager.app.state.experiment_manager.create_experiment = AsyncMock(
             return_value={
-                "experiment_id": sample_experiment_spec.experiment_id,
+                "experiment_id": sample_experiment_spec.id,
                 "created_at": datetime.now(timezone.utc)
             }
         )
@@ -32,7 +33,7 @@ class TestExperimentEndpoints:
         data = response.json()
         assert "experiment_id" in data
         assert "created_at" in data
-        assert data["experiment_id"] == sample_experiment_spec.experiment_id
+        assert data["experiment_id"] == sample_experiment_spec.id
 
     def test_create_experiment_invalid_spec(self, test_client_with_experiment_manager):
         """Test experiment creation with invalid ExperimentSpec."""
@@ -42,7 +43,7 @@ class TestExperimentEndpoints:
             json={
                 "experiment_spec": {
                     "name": "Test Experiment"
-                    # Missing experiment_id, models, task_type
+                    # Missing model, task, framework, metrics
                 }
             }
         )
@@ -61,7 +62,7 @@ class TestExperimentEndpoints:
     def test_create_experiment_already_exists(self, test_client_with_experiment_manager, sample_experiment_spec):
         """Test creating experiment that already exists."""
         test_client_with_experiment_manager.app.state.experiment_manager.create_experiment = AsyncMock(
-            side_effect=ExperimentAlreadyExistsException(sample_experiment_spec.experiment_id)
+            side_effect=ExperimentAlreadyExistsException(sample_experiment_spec.id)
         )
         
         response = test_client_with_experiment_manager.post(
@@ -115,10 +116,28 @@ class TestExperimentEndpoints:
                 "/api/v1/experiments/",
                 json={
                     "experiment_spec": {
-                        "experiment_id": "test",
                         "name": "Test",
-                        "models": ["test-model"],
-                        "task_type": "summarization"
+                        "model": "test-model",
+                        "task": {
+                            "name": "test_task",
+                            "type": "llm_generation",
+                            "description": "Test task",
+                            "params": {
+                                "prompt_template": {
+                                    "messages": [
+                                        {"role": "system", "content": "You are a helpful assistant."},
+                                        {"role": "user", "content": "Please complete this task."}
+                                    ]
+                                }
+                            }
+                        },
+                        "framework": {
+                            "name": "transformers",
+                            "params": {"batch_size": 1}
+                        },
+                        "metrics": {
+                            "metrics": {"latency": "timer"}
+                        }
                     }
                 }
             )
@@ -129,19 +148,16 @@ class TestExperimentEndpoints:
     def test_create_experiment_complex_spec(self, test_client_with_experiment_manager, experiment_spec_factory):
         """Test creating experiment with complex ExperimentSpec."""
         complex_spec = experiment_spec_factory(
-            experiment_id="complex-experiment",
             name="Complex Test Experiment",
-            models=["gpt-3.5-turbo", "gpt-4"],
-            task_type=TaskType.QUESTION_ANSWERING,
-            priority=8,
-            timeout_seconds=7200,
-            owner="test-user",
-            tags=["complex", "multi-model", "qa"]
+            model="gpt-3.5-turbo",
+            description="Complex experiment with multiple models",
+            framework_params={"priority": 8, "timeout_seconds": 7200, "owner": "test-user"},
+            metrics={"complex": "true", "multi-model": "true", "qa": "true"}
         )
         
         test_client_with_experiment_manager.app.state.experiment_manager.create_experiment = AsyncMock(
             return_value={
-                "experiment_id": complex_spec.experiment_id,
+                "experiment_id": complex_spec.id,
                 "created_at": datetime.now(timezone.utc)
             }
         )
@@ -153,13 +169,13 @@ class TestExperimentEndpoints:
         
         assert response.status_code == 200
         data = response.json()
-        assert data["experiment_id"] == "complex-experiment"
+        assert data["experiment_id"] == complex_spec.id
 
     def test_experiment_api_content_type(self, test_client_with_experiment_manager, sample_experiment_spec):
         """Test that experiment API endpoints return proper content type."""
         test_client_with_experiment_manager.app.state.experiment_manager.create_experiment = AsyncMock(
             return_value={
-                "experiment_id": sample_experiment_spec.experiment_id,
+                "experiment_id": sample_experiment_spec.id,
                 "created_at": datetime.now(timezone.utc)
             }
         )
@@ -214,7 +230,7 @@ class TestExperimentEndpoints:
         created_at = datetime.now(timezone.utc)
         test_client_with_experiment_manager.app.state.experiment_manager.create_experiment = AsyncMock(
             return_value={
-                "experiment_id": sample_experiment_spec.experiment_id,
+                "experiment_id": sample_experiment_spec.id,
                 "created_at": created_at
             }
         )
@@ -283,18 +299,54 @@ class TestExperimentEndpoints:
         # Mock the experiment manager method
         mock_experiments = [
             ExperimentSpec(
-                experiment_id="exp-1",
                 name="Experiment 1",
                 description="First experiment",
-                models=["model-1"],
-                task_type=TaskType.SUMMARIZATION
+                model="model-1",
+                task=TaskSpec(
+                    name="test_task_1",
+                    type=TaskType.LLM_GENERATION,
+                    description="First test task",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content="Complete task 1.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"batch_size": 1}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"latency": "timer"}
+                )
             ),
             ExperimentSpec(
-                experiment_id="exp-2",
-                name="Experiment 2", 
+                name="Experiment 2",
                 description="Second experiment",
-                models=["model-2"],
-                task_type=TaskType.QUESTION_ANSWERING
+                model="model-2",
+                task=TaskSpec(
+                    name="test_task_2",
+                    type=TaskType.LLM_GENERATION,
+                    description="Second test task",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content="Complete task 2.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"batch_size": 1}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"latency": "timer"}
+                )
             )
         ]
         
@@ -308,8 +360,8 @@ class TestExperimentEndpoints:
         data = response.json()
         assert "experiments" in data
         assert len(data["experiments"]) == 2
-        assert data["experiments"][0]["experiment_id"] == "exp-1"
-        assert data["experiments"][1]["experiment_id"] == "exp-2"
+        assert data["experiments"][0]["id"] == mock_experiments[0].id
+        assert data["experiments"][1]["id"] == mock_experiments[1].id
 
     def test_list_experiments_empty(self, test_client_with_experiment_manager):
         """Test experiments listing when no experiments exist."""
@@ -368,11 +420,29 @@ class TestExperimentEndpoints:
         for i in range(100):
             mock_experiments.append(
                 ExperimentSpec(
-                    experiment_id=f"exp-{i}",
                     name=f"Experiment {i}",
                     description=f"Description for experiment {i}",
-                    models=[f"model-{i}"],
-                    task_type=TaskType.SUMMARIZATION
+                    model=f"model-{i}",
+                    task=TaskSpec(
+                        name=f"test_task_{i}",
+                        type=TaskType.LLM_GENERATION,
+                        description=f"Test task {i}",
+                        params=LLMGenerationParams(
+                            prompt_template=PromptTemplate(
+                                messages=[
+                                    PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                    PromptMessage(role=PromptRole.USER, content=f"Complete task {i}.")
+                                ]
+                            )
+                        )
+                    ),
+                    framework=FrameworkSpec(
+                        name=FrameworkName.TRANSFORMERS,
+                        params={"batch_size": 1}
+                    ),
+                    metrics=MetricsSpec(
+                        metrics={"latency": "timer"}
+                    )
                 )
             )
         
@@ -385,17 +455,35 @@ class TestExperimentEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data["experiments"]) == 100
-        assert data["experiments"][0]["experiment_id"] == "exp-0"
-        assert data["experiments"][99]["experiment_id"] == "exp-99"
+        assert data["experiments"][0]["id"] == mock_experiments[0].id
+        assert data["experiments"][99]["id"] == mock_experiments[99].id
 
     def test_list_experiments_response_format(self, test_client_with_experiment_manager):
         """Test that list experiments response has correct format."""
         mock_experiment = ExperimentSpec(
-            experiment_id="format-test",
             name="Format Test Experiment",
             description="Testing response format",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
+            model="test-model",
+            task=TaskSpec(
+                name="format_test_task",
+                type=TaskType.LLM_GENERATION,
+                description="Format test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test format.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"batch_size": 1}
+            ),
+            metrics=MetricsSpec(
+                metrics={"latency": "timer"}
+            )
         )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
@@ -412,11 +500,13 @@ class TestExperimentEndpoints:
         assert len(data["experiments"]) == 1
         
         experiment = data["experiments"][0]
-        assert "experiment_id" in experiment
+        assert "id" in experiment
         assert "name" in experiment
         assert "description" in experiment
-        assert "models" in experiment
-        assert "task_type" in experiment
+        assert "model" in experiment
+        assert "task" in experiment
+        assert "framework" in experiment
+        assert "metrics" in experiment
 
     def test_list_experiments_content_type(self, test_client_with_experiment_manager):
         """Test that list experiments endpoint returns proper content type."""
@@ -435,11 +525,29 @@ class TestExperimentEndpoints:
         updated_at = datetime.now(timezone.utc)
         
         mock_experiment = ExperimentSpec(
-            experiment_id="datetime-test",
             name="DateTime Test",
             description="Testing datetime serialization",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
+            model="test-model",
+            task=TaskSpec(
+                name="datetime_test_task",
+                type=TaskType.LLM_GENERATION,
+                description="DateTime test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test datetime.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"batch_size": 1}
+            ),
+            metrics=MetricsSpec(
+                metrics={"latency": "timer"}
+            )
         )
         
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
@@ -481,11 +589,29 @@ class TestExperimentEndpoints:
         test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
             return_value=[
                 ExperimentSpec(
-                    experiment_id="concurrent-test",
                     name="Concurrent Test",
                     description="Testing concurrent access",
-                    models=["test-model"],
-                    task_type=TaskType.SUMMARIZATION
+                    model="test-model",
+                    task=TaskSpec(
+                        name="concurrent_test_task",
+                        type=TaskType.LLM_GENERATION,
+                        description="Concurrent test task",
+                        params=LLMGenerationParams(
+                            prompt_template=PromptTemplate(
+                                messages=[
+                                    PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                    PromptMessage(role=PromptRole.USER, content="Test concurrency.")
+                                ]
+                            )
+                        )
+                    ),
+                    framework=FrameworkSpec(
+                        name=FrameworkName.TRANSFORMERS,
+                        params={"batch_size": 1}
+                    ),
+                    metrics=MetricsSpec(
+                        metrics={"latency": "timer"}
+                    )
                 )
             ]
         )
@@ -541,20 +667,6 @@ class TestExperimentEndpoints:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
-    def test_delete_experiment_has_jobs(self, test_client_with_experiment_manager):
-        """Test deleting experiment that has associated jobs."""
-        experiment_id = "experiment-with-jobs"
-        job_count = 3
-        
-        test_client_with_experiment_manager.app.state.experiment_manager.delete_experiment = AsyncMock(
-            side_effect=ExperimentHasJobsException(experiment_id, job_count)
-        )
-        
-        response = test_client_with_experiment_manager.delete(f"/api/v1/experiments/{experiment_id}")
-        
-        assert response.status_code == 409
-        assert "associated job(s)" in response.json()["detail"]
-        assert str(job_count) in response.json()["detail"]
 
     def test_delete_experiment_value_error(self, test_client_with_experiment_manager):
         """Test experiment deletion with validation error."""
@@ -695,235 +807,6 @@ class TestExperimentEndpoints:
         threads = []
         for i in range(5):
             thread = threading.Thread(target=delete_experiment, args=(f"experiment-{i}",))
-            threads.append(thread)
-            thread.start()
-        
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join(timeout=5)
-        
-        # All requests should succeed
-        assert len(results) == 5
-        assert all(status == 200 for status in results)
-        assert len(errors) == 0
-
-    # List Experiments Tests
-    def test_list_experiments_success(self, test_client_with_experiment_manager):
-        """Test successful experiments listing."""
-        # Mock the experiment manager method
-        mock_experiments = [
-            ExperimentSpec(
-                experiment_id="exp-1",
-                name="Experiment 1",
-                description="First experiment",
-                models=["model-1"],
-                task_type=TaskType.SUMMARIZATION
-            ),
-            ExperimentSpec(
-                experiment_id="exp-2",
-                name="Experiment 2", 
-                description="Second experiment",
-                models=["model-2"],
-                task_type=TaskType.QUESTION_ANSWERING
-            )
-        ]
-        
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=mock_experiments
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert "experiments" in data
-        assert len(data["experiments"]) == 2
-        assert data["experiments"][0]["experiment_id"] == "exp-1"
-        assert data["experiments"][1]["experiment_id"] == "exp-2"
-
-    def test_list_experiments_empty(self, test_client_with_experiment_manager):
-        """Test experiments listing when no experiments exist."""
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=[]
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["experiments"] == []
-
-    def test_list_experiments_manager_not_initialized(self):
-        """Test experiments listing when experiment manager not initialized."""
-        from fastapi.testclient import TestClient
-        from fastapi import FastAPI
-        from ruckus_server.api.v1.api import api_router
-        
-        # Create a simple app without managers
-        test_app = FastAPI()
-        test_app.include_router(api_router, prefix="/api/v1")
-        
-        with TestClient(test_app) as client:
-            response = client.get("/api/v1/experiments/")
-        
-        assert response.status_code == 503
-        assert "Experiment manager not initialized" in response.json()["detail"]
-
-    def test_list_experiments_server_error(self, test_client_with_experiment_manager):
-        """Test experiments listing with server error."""
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            side_effect=Exception("Database connection failed")
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 500
-        assert "Internal server error" in response.json()["detail"]
-
-    def test_list_experiments_value_error(self, test_client_with_experiment_manager):
-        """Test experiments listing with validation error."""
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            side_effect=ValueError("Invalid query parameters")
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 400
-        assert "Invalid query parameters" in response.json()["detail"]
-
-    def test_list_experiments_large_dataset(self, test_client_with_experiment_manager):
-        """Test experiments listing with many experiments."""
-        # Create mock data for many experiments
-        mock_experiments = []
-        for i in range(100):
-            mock_experiments.append(
-                ExperimentSpec(
-                    experiment_id=f"exp-{i}",
-                    name=f"Experiment {i}",
-                    description=f"Description for experiment {i}",
-                    models=[f"model-{i}"],
-                    task_type=TaskType.SUMMARIZATION
-                )
-            )
-        
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=mock_experiments
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["experiments"]) == 100
-        assert data["experiments"][0]["experiment_id"] == "exp-0"
-        assert data["experiments"][99]["experiment_id"] == "exp-99"
-
-    def test_list_experiments_response_format(self, test_client_with_experiment_manager):
-        """Test that list experiments response has correct format."""
-        mock_experiment = ExperimentSpec(
-            experiment_id="format-test",
-            name="Format Test Experiment",
-            description="Testing response format",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
-        )
-        
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=[mock_experiment]
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 200
-        data = response.json()
-        
-        # Verify response structure
-        assert "experiments" in data
-        assert len(data["experiments"]) == 1
-        
-        experiment = data["experiments"][0]
-        assert "experiment_id" in experiment
-        assert "name" in experiment
-        assert "description" in experiment
-        assert "models" in experiment
-        assert "task_type" in experiment
-
-    def test_list_experiments_content_type(self, test_client_with_experiment_manager):
-        """Test that list experiments endpoint returns proper content type."""
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=[]
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 200
-        assert "application/json" in response.headers.get("content-type", "")
-
-    def test_list_experiments_datetime_serialization(self, test_client_with_experiment_manager):
-        """Test that datetime fields are properly serialized in list response."""
-        created_at = datetime.now(timezone.utc)
-        updated_at = datetime.now(timezone.utc)
-        
-        mock_experiment = ExperimentSpec(
-            experiment_id="datetime-test",
-            name="DateTime Test",
-            description="Testing datetime serialization",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
-        )
-        
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=[mock_experiment]
-        )
-        
-        response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-        
-        assert response.status_code == 200
-        data = response.json()
-        
-        experiment = data["experiments"][0]
-        
-        # Verify datetime fields are properly serialized as strings
-        assert isinstance(experiment["created_at"], str)
-        assert isinstance(experiment["updated_at"], str)
-        
-        # Verify we can parse the datetime strings
-        parsed_created = datetime.fromisoformat(experiment["created_at"].replace('Z', '+00:00'))
-        parsed_updated = datetime.fromisoformat(experiment["updated_at"].replace('Z', '+00:00'))
-        assert isinstance(parsed_created, datetime)
-        assert isinstance(parsed_updated, datetime)
-
-    def test_list_experiments_concurrent_requests(self, test_client_with_experiment_manager):
-        """Test handling of concurrent list experiments requests."""
-        import threading
-        
-        results = []
-        errors = []
-        
-        def list_experiments():
-            try:
-                response = test_client_with_experiment_manager.get("/api/v1/experiments/")
-                results.append(response.status_code)
-            except Exception as e:
-                errors.append(str(e))
-        
-        # Mock successful listing
-        test_client_with_experiment_manager.app.state.experiment_manager.list_experiments = AsyncMock(
-            return_value=[
-                ExperimentSpec(
-                    experiment_id="concurrent-test",
-                    name="Concurrent Test",
-                    description="Testing concurrent access",
-                    models=["test-model"],
-                    task_type=TaskType.SUMMARIZATION
-                )
-            ]
-        )
-        
-        # Make multiple concurrent requests
-        threads = []
-        for i in range(5):
-            thread = threading.Thread(target=list_experiments)
             threads.append(thread)
             thread.start()
         

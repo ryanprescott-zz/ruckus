@@ -11,7 +11,7 @@ import yaml
 
 from .config import ExperimentManagerSettings
 from .storage.factory import storage_factory
-from .storage.base import StorageBackend, ExperimentAlreadyExistsException, ExperimentNotFoundException, ExperimentHasJobsException
+from .storage.base import StorageBackend, ExperimentAlreadyExistsException, ExperimentNotFoundException
 from ruckus_common.models import ExperimentSpec
 
 
@@ -161,7 +161,6 @@ class ExperimentManager:
             
         Raises:
             ExperimentNotFoundException: If experiment with given ID doesn't exist
-            ExperimentHasJobsException: If experiment has associated jobs
             RuntimeError: If experiment manager is not started
         """
         if not self._started:
@@ -176,7 +175,7 @@ class ExperimentManager:
             self.logger.info(f"Experiment {experiment_id} deleted successfully")
             return result
             
-        except (ExperimentNotFoundException, ExperimentHasJobsException) as e:
+        except ExperimentNotFoundException as e:
             self.logger.error(f"Failed to delete experiment: {e}")
             raise
         except Exception as e:

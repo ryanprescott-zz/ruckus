@@ -30,8 +30,7 @@ pytestmark = pytest.mark.skipif(not ASYNCPG_AVAILABLE, reason="asyncpg not insta
 from ruckus_server.core.storage.postgresql import PostgreSQLStorageBackend
 from ruckus_server.core.storage.base import (
     ExperimentAlreadyExistsException, 
-    ExperimentNotFoundException, 
-    ExperimentHasJobsException
+    ExperimentNotFoundException
 )
 from ruckus_server.core.config import PostgreSQLSettings
 from ruckus_common.models import (ExperimentSpec, RegisteredAgentInfo, AgentType, TaskType, 
@@ -176,7 +175,7 @@ class TestPostgreSQLExperimentOperations:
         assert isinstance(result, dict)
         assert "experiment_id" in result
         assert "created_at" in result
-        assert result["experiment_id"] == sample_experiment_spec.experiment_id
+        assert result["experiment_id"] == sample_experiment_spec.id
         assert isinstance(result["created_at"], datetime)
     
     @pytest.mark.asyncio
@@ -189,7 +188,7 @@ class TestPostgreSQLExperimentOperations:
         with pytest.raises(ExperimentAlreadyExistsException) as exc_info:
             await postgresql_storage.create_experiment(sample_experiment_spec)
         
-        assert exc_info.value.experiment_id == sample_experiment_spec.experiment_id
+        assert exc_info.value.experiment_id == sample_experiment_spec.id
     
     @pytest.mark.asyncio
     async def test_get_experiment_success(self, postgresql_storage, sample_experiment_spec):
@@ -198,11 +197,11 @@ class TestPostgreSQLExperimentOperations:
         await postgresql_storage.create_experiment(sample_experiment_spec)
         
         # Retrieve experiment
-        result = await postgresql_storage.get_experiment(sample_experiment_spec.experiment_id)
+        result = await postgresql_storage.get_experiment(sample_experiment_spec.id)
         
         # Verify result
         assert isinstance(result, ExperimentSpec)
-        assert result.experiment_id == sample_experiment_spec.experiment_id
+        assert result.id == sample_experiment_spec.id
         assert result.name == sample_experiment_spec.name
         assert result.description == sample_experiment_spec.description
         assert result.tags == sample_experiment_spec.tags
@@ -287,7 +286,7 @@ class TestPostgreSQLExperimentOperations:
         
         # Update status
         success = await postgresql_storage.update_experiment_status(
-            sample_experiment_spec.experiment_id, "running"
+            sample_experiment_spec.id, "running"
         )
         assert success is True
         
@@ -301,18 +300,18 @@ class TestPostgreSQLExperimentOperations:
         await postgresql_storage.create_experiment(sample_experiment_spec)
         
         # Delete experiment
-        result = await postgresql_storage.delete_experiment(sample_experiment_spec.experiment_id)
+        result = await postgresql_storage.delete_experiment(sample_experiment_spec.id)
         
         # Verify return format
         assert isinstance(result, dict)
         assert "experiment_id" in result
         assert "deleted_at" in result
-        assert result["experiment_id"] == sample_experiment_spec.experiment_id
+        assert result["experiment_id"] == sample_experiment_spec.id
         assert isinstance(result["deleted_at"], datetime)
         
         # Verify experiment is gone
         with pytest.raises(ExperimentNotFoundException):
-            await postgresql_storage.get_experiment(sample_experiment_spec.experiment_id)
+            await postgresql_storage.get_experiment(sample_experiment_spec.id)
     
     @pytest.mark.asyncio
     async def test_delete_experiment_not_found(self, postgresql_storage):
@@ -322,25 +321,6 @@ class TestPostgreSQLExperimentOperations:
         
         assert exc_info.value.experiment_id == "nonexistent-experiment"
     
-    @pytest.mark.asyncio
-    async def test_delete_experiment_with_jobs(self, postgresql_storage, sample_experiment_spec):
-        """Test deleting experiment with associated jobs."""
-        # Create experiment
-        await postgresql_storage.create_experiment(sample_experiment_spec)
-        
-        # Create associated job
-        await postgresql_storage.create_job(
-            "test-job", 
-            sample_experiment_spec.experiment_id,
-            {"param": "value"}
-        )
-        
-        # Try to delete experiment with jobs
-        with pytest.raises(ExperimentHasJobsException) as exc_info:
-            await postgresql_storage.delete_experiment(sample_experiment_spec.experiment_id)
-        
-        assert exc_info.value.experiment_id == sample_experiment_spec.experiment_id
-        assert exc_info.value.job_count == 1
 
 
 class TestPostgreSQLAgentOperations:
@@ -456,7 +436,7 @@ class TestPostgreSQLJobOperations:
         # Create job
         success = await postgresql_storage.create_job(
             "test-job",
-            sample_experiment_spec.experiment_id,
+            sample_experiment_spec.id,
             {"param": "value", "count": 42}
         )
         assert success is True
@@ -467,7 +447,7 @@ class TestPostgreSQLJobOperations:
         # Create experiment and job
         await postgresql_storage.create_experiment(sample_experiment_spec)
         job_config = {"param": "value", "count": 42}
-        await postgresql_storage.create_job("test-job", sample_experiment_spec.experiment_id, job_config)
+        await postgresql_storage.create_job("test-job", sample_experiment_spec.id, job_config)
         
         # Get job
         result = await postgresql_storage.get_job("test-job")
@@ -475,7 +455,7 @@ class TestPostgreSQLJobOperations:
         # Verify result
         assert result is not None
         assert result["id"] == "test-job"
-        assert result["experiment_id"] == sample_experiment_spec.experiment_id
+        assert result["experiment_id"] == sample_experiment_spec.id
         assert result["config"] == job_config
         assert result["status"] == "scheduled"  # default status
     
@@ -501,7 +481,7 @@ class TestPostgreSQLJobOperations:
         for i in range(3):
             await postgresql_storage.create_job(
                 f"job-{i}",
-                sample_experiment_spec.experiment_id,
+                sample_experiment_spec.id,
                 {"index": i}
             )
         
@@ -510,7 +490,7 @@ class TestPostgreSQLJobOperations:
         assert len(all_jobs) == 3
         
         # List jobs by experiment
-        exp_jobs = await postgresql_storage.list_jobs(experiment_id=sample_experiment_spec.experiment_id)
+        exp_jobs = await postgresql_storage.list_jobs(experiment_id=sample_experiment_spec.id)
         assert len(exp_jobs) == 3
         
         # List jobs by status
@@ -523,7 +503,7 @@ class TestPostgreSQLJobOperations:
         # Create experiment, agent, and job
         await postgresql_storage.create_experiment(sample_experiment_spec)
         await postgresql_storage.register_agent(sample_agent_info)
-        await postgresql_storage.create_job("test-job", sample_experiment_spec.experiment_id, {})
+        await postgresql_storage.create_job("test-job", sample_experiment_spec.id, {})
         
         # Assign job to agent
         success = await postgresql_storage.assign_job_to_agent("test-job", sample_agent_info.agent_id)
@@ -534,7 +514,7 @@ class TestPostgreSQLJobOperations:
         """Test updating job status."""
         # Create experiment and job
         await postgresql_storage.create_experiment(sample_experiment_spec)
-        await postgresql_storage.create_job("test-job", sample_experiment_spec.experiment_id, {})
+        await postgresql_storage.create_job("test-job", sample_experiment_spec.id, {})
         
         # Update job status
         success = await postgresql_storage.update_job_status(
@@ -555,7 +535,7 @@ class TestPostgreSQLJobOperations:
         # Create and assign jobs
         for i in range(2):
             job_id = f"agent-job-{i}"
-            await postgresql_storage.create_job(job_id, sample_experiment_spec.experiment_id, {})
+            await postgresql_storage.create_job(job_id, sample_experiment_spec.id, {})
             await postgresql_storage.assign_job_to_agent(job_id, sample_agent_info.agent_id)
         
         # Get jobs for agent
@@ -706,8 +686,8 @@ class TestPostgreSQLErrorHandling:
             await postgresql_storage.create_experiment(sample_experiment_spec)
         
         # Verify original experiment still exists and is intact
-        result = await postgresql_storage.get_experiment(sample_experiment_spec.experiment_id)
-        assert result.experiment_id == sample_experiment_spec.experiment_id
+        result = await postgresql_storage.get_experiment(sample_experiment_spec.id)
+        assert result.id == sample_experiment_spec.id
 
 
 def pytest_addoption(parser):

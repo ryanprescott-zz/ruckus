@@ -8,7 +8,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from ruckus_server.api.v1.routers.experiments import router
-from ruckus_common.models import ExperimentSpec, TaskType
+from ruckus_common.models import (ExperimentSpec, TaskType, TaskSpec, FrameworkSpec, MetricsSpec, 
+                                  LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 @pytest.fixture
@@ -36,22 +37,54 @@ def sample_experiment_specs():
     """Create sample experiment specs for testing."""
     return [
         ExperimentSpec(
-            experiment_id="test-experiment-1",
             name="Test Experiment 1",
             description="First test experiment",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=["type-test", "version-1.0"],
-            base_parameters={"learning_rate": 0.01, "batch_size": 32}
+            model="test-model",
+            task=TaskSpec(
+                name="api_test_task_1",
+                type=TaskType.LLM_GENERATION,
+                description="API test task 1",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="API test experiment 1.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"learning_rate": 0.01, "batch_size": 32}
+            ),
+            metrics=MetricsSpec(
+                metrics={"type": "test", "version": "1.0"}
+            )
         ),
         ExperimentSpec(
-            experiment_id="test-experiment-2", 
             name="Test Experiment 2",
             description="Second test experiment",
-            models=["test-model-2"],
-            task_type=TaskType.CLASSIFICATION,
-            tags=["type-production", "version-2.0"],
-            base_parameters={"learning_rate": 0.001, "batch_size": 64}
+            model="test-model-2",
+            task=TaskSpec(
+                name="api_test_task_2",
+                type=TaskType.LLM_GENERATION,
+                description="API test task 2",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="API test experiment 2.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"learning_rate": 0.001, "batch_size": 64}
+            ),
+            metrics=MetricsSpec(
+                metrics={"type": "production", "version": "2.0"}
+            )
         )
     ]
 
@@ -77,18 +110,16 @@ class TestListExperimentsSuccess:
         assert len(experiments) == 2
         
         # Verify first experiment
-        assert experiments[0]["experiment_id"] == "test-experiment-1"
+        assert experiments[0]["id"] == sample_experiment_specs[0].id
         assert experiments[0]["name"] == "Test Experiment 1"
         assert experiments[0]["description"] == "First test experiment"
-        assert experiments[0]["tags"] == ["type-test", "version-1.0"]
-        assert experiments[0]["base_parameters"] == {"learning_rate": 0.01, "batch_size": 32}
+        assert experiments[0]["model"] == "test-model"
         
         # Verify second experiment
-        assert experiments[1]["experiment_id"] == "test-experiment-2"
+        assert experiments[1]["id"] == sample_experiment_specs[1].id
         assert experiments[1]["name"] == "Test Experiment 2"
         assert experiments[1]["description"] == "Second test experiment"
-        assert experiments[1]["tags"] == ["type-production", "version-2.0"]
-        assert experiments[1]["base_parameters"] == {"learning_rate": 0.001, "batch_size": 64}
+        assert experiments[1]["model"] == "test-model-2"
         
         # Verify manager was called correctly
         mock_experiment_manager.list_experiments.assert_called_once()
@@ -114,32 +145,48 @@ class TestListExperimentsSuccess:
         """Test listing experiments with complex parameter structures."""
         # Setup
         complex_spec = ExperimentSpec(
-            experiment_id="complex-experiment",
             name="Complex Experiment",
             description="An experiment with complex parameters",
-            models=["transformer-model"],
-            task_type=TaskType.GENERATION,
-            tags=["complexity-high", "framework-pytorch"],
-            base_parameters={
-                "model": {
-                    "architecture": "transformer",
-                    "layers": [
-                        {"type": "attention", "heads": 8, "dim": 512},
-                        {"type": "feedforward", "dim": 2048}
-                    ],
-                    "dropout": 0.1
-                },
-                "training": {
-                    "optimizer": {"name": "adam", "lr": 1e-4, "betas": [0.9, 0.999]},
-                    "scheduler": {"type": "cosine", "warmup_steps": 1000},
-                    "batch_size": 32
-                },
-                "data": {
-                    "source": "/path/to/data",
-                    "preprocessing": ["tokenize", "normalize"],
-                    "augmentation": {"enabled": True, "methods": ["random_crop", "flip"]}
+            model="transformer-model",
+            task=TaskSpec(
+                name="complex_task",
+                type=TaskType.LLM_GENERATION,
+                description="Complex task with transformer model",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Complex experiment task.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={
+                    "model": {
+                        "architecture": "transformer",
+                        "layers": [
+                            {"type": "attention", "heads": 8, "dim": 512},
+                            {"type": "feedforward", "dim": 2048}
+                        ],
+                        "dropout": 0.1
+                    },
+                    "training": {
+                        "optimizer": {"name": "adam", "lr": 1e-4, "betas": [0.9, 0.999]},
+                        "scheduler": {"type": "cosine", "warmup_steps": 1000},
+                        "batch_size": 32
+                    },
+                    "data": {
+                        "source": "/path/to/data",
+                        "preprocessing": ["tokenize", "normalize"],
+                        "augmentation": {"enabled": True, "methods": ["random_crop", "flip"]}
+                    }
                 }
-            }
+            ),
+            metrics=MetricsSpec(
+                metrics={"complexity": "high", "framework": "pytorch"}
+            )
         )
         
         app.state.experiment_manager = mock_experiment_manager
@@ -155,11 +202,11 @@ class TestListExperimentsSuccess:
         assert len(experiments) == 1
         
         experiment = experiments[0]
-        assert experiment["experiment_id"] == "complex-experiment"
-        assert experiment["base_parameters"]["model"]["architecture"] == "transformer"
-        assert experiment["base_parameters"]["training"]["optimizer"]["name"] == "adam"
-        assert len(experiment["base_parameters"]["model"]["layers"]) == 2
-        assert experiment["base_parameters"]["data"]["augmentation"]["methods"] == ["random_crop", "flip"]
+        assert experiment["id"] == complex_spec.id
+        assert experiment["framework"]["params"]["model"]["architecture"] == "transformer"
+        assert experiment["framework"]["params"]["training"]["optimizer"]["name"] == "adam"
+        assert len(experiment["framework"]["params"]["model"]["layers"]) == 2
+        assert experiment["framework"]["params"]["data"]["augmentation"]["methods"] == ["random_crop", "flip"]
     
     def test_list_experiments_large_dataset(self, client, app, mock_experiment_manager):
         """Test listing many experiments."""
@@ -167,13 +214,29 @@ class TestListExperimentsSuccess:
         large_experiment_list = []
         for i in range(100):
             spec = ExperimentSpec(
-                experiment_id=f"experiment-{i}",
                 name=f"Experiment {i}",
                 description=f"Test experiment number {i}",
-                models=[f"model-{i}"],
-                task_type=TaskType.SUMMARIZATION,
-                tags=[f"index-{i}", "batch-large_test"],
-                base_parameters={"value": i * 10, "active": i % 2 == 0}
+                model=f"model-{i}",
+                task=TaskSpec(
+                    name=f"large_test_task_{i}",
+                    type=TaskType.LLM_GENERATION,
+                    description=f"Large test task {i}",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content=f"Large test experiment {i}.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"value": i * 10, "active": i % 2 == 0}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"index": str(i), "batch": "large_test"}
+                )
             )
             large_experiment_list.append(spec)
         
@@ -190,10 +253,10 @@ class TestListExperimentsSuccess:
         assert len(experiments) == 100
         
         # Spot check first and last
-        assert experiments[0]["experiment_id"] == "experiment-0"
-        assert experiments[0]["base_parameters"]["value"] == 0
-        assert experiments[99]["experiment_id"] == "experiment-99"
-        assert experiments[99]["base_parameters"]["value"] == 990
+        assert experiments[0]["id"] == large_experiment_list[0].id
+        assert experiments[0]["framework"]["params"]["value"] == 0
+        assert experiments[99]["id"] == large_experiment_list[99].id
+        assert experiments[99]["framework"]["params"]["value"] == 990
 
 
 class TestListExperimentsServerErrors:
@@ -263,13 +326,29 @@ class TestListExperimentsEdgeCases:
         """Test listing experiments with None descriptions."""
         # Setup
         spec_with_none = ExperimentSpec(
-            experiment_id="none-desc-test",
             name="None Description Test",
             description=None,
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=[],
-            base_parameters={}
+            model="test-model",
+            task=TaskSpec(
+                name="none_desc_task",
+                type=TaskType.LLM_GENERATION,
+                description="Task with none description",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="None description test.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={}
+            ),
+            metrics=MetricsSpec(
+                metrics={}
+            )
         )
         
         app.state.experiment_manager = mock_experiment_manager
@@ -289,13 +368,29 @@ class TestListExperimentsEdgeCases:
         """Test listing experiments with empty tags and parameters."""
         # Setup
         empty_spec = ExperimentSpec(
-            experiment_id="empty-test",
             name="Empty Containers Test",
             description="Testing empty tags and parameters",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=[],
-            base_parameters={}
+            model="test-model",
+            task=TaskSpec(
+                name="empty_containers_task",
+                type=TaskType.LLM_GENERATION,
+                description="Task with empty containers",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Empty containers test.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={}
+            ),
+            metrics=MetricsSpec(
+                metrics={}
+            )
         )
         
         app.state.experiment_manager = mock_experiment_manager
@@ -309,20 +404,36 @@ class TestListExperimentsEdgeCases:
         response_data = response.json()
         experiments = response_data["experiments"]
         assert len(experiments) == 1
-        assert experiments[0]["tags"] == []
-        assert experiments[0]["base_parameters"] == {}
+        assert experiments[0]["metrics"]["metrics"] == {}
+        assert experiments[0]["framework"]["params"] == {}
     
     def test_list_experiments_response_format(self, client, app, mock_experiment_manager):
         """Test that response has correct structure."""
         # Setup
         single_spec = ExperimentSpec(
-            experiment_id="format-test",
             name="Format Test",
             description="Testing response format",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=["env-test"],
-            base_parameters={"test": True}
+            model="test-model",
+            task=TaskSpec(
+                name="format_test_task",
+                type=TaskType.LLM_GENERATION,
+                description="Format test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Format test.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"test": True}
+            ),
+            metrics=MetricsSpec(
+                metrics={"env": "test"}
+            )
         )
         
         app.state.experiment_manager = mock_experiment_manager
@@ -342,7 +453,7 @@ class TestListExperimentsEdgeCases:
         
         # Check experiment structure
         experiment = response_data["experiments"][0]
-        required_fields = ["experiment_id", "name", "description", "tags", "base_parameters"]
+        required_fields = ["id", "name", "description", "model", "task", "framework", "metrics"]
         for field in required_fields:
             assert field in experiment
     
@@ -350,18 +461,34 @@ class TestListExperimentsEdgeCases:
         """Test that complex data types are properly JSON serialized."""
         # Setup
         spec_with_types = ExperimentSpec(
-            experiment_id="json-test",
             name="JSON Serialization Test",
             description="Testing JSON edge cases",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=["float-3.14159", "boolean-True", "null-None"],
-            base_parameters={
-                "nested": {"deep": {"value": [1, 2, 3]}},
-                "unicode": "测试数据",
-                "special_chars": "test@#$%^&*()",
-                "numbers": {"int": 42, "float": 3.14, "scientific": 1e-5}
-            }
+            model="test-model",
+            task=TaskSpec(
+                name="json_test_task",
+                type=TaskType.LLM_GENERATION,
+                description="JSON serialization test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="JSON serialization test.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={
+                    "nested": {"deep": {"value": [1, 2, 3]}},
+                    "unicode": "测试数据",
+                    "special_chars": "test@#$%^&*()",
+                    "numbers": {"int": 42, "float": 3.14, "scientific": 1e-5}
+                }
+            ),
+            metrics=MetricsSpec(
+                metrics={"float": "3.14159", "boolean": "True", "null": "None"}
+            )
         )
         
         app.state.experiment_manager = mock_experiment_manager
@@ -377,11 +504,11 @@ class TestListExperimentsEdgeCases:
         experiment = experiments[0]
         
         # Verify all data types are preserved
-        assert "float-3.14159" in experiment["tags"]
-        assert "boolean-True" in experiment["tags"]
-        assert "null-None" in experiment["tags"]
-        assert experiment["base_parameters"]["unicode"] == "测试数据"
-        assert experiment["base_parameters"]["numbers"]["scientific"] == 1e-5
+        assert experiment["metrics"]["metrics"]["float"] == "3.14159"
+        assert experiment["metrics"]["metrics"]["boolean"] == "True"
+        assert experiment["metrics"]["metrics"]["null"] == "None"
+        assert experiment["framework"]["params"]["unicode"] == "测试数据"
+        assert experiment["framework"]["params"]["numbers"]["scientific"] == 1e-5
 
 
 class TestListExperimentsPerformance:
@@ -393,13 +520,29 @@ class TestListExperimentsPerformance:
         
         # Setup
         test_spec = ExperimentSpec(
-            experiment_id="concurrent-test",
             name="Concurrent Test",
             description="Testing concurrent access",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=["test-concurrency"],
-            base_parameters={"threads": 10}
+            model="test-model",
+            task=TaskSpec(
+                name="concurrent_test_task",
+                type=TaskType.LLM_GENERATION,
+                description="Concurrent test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Concurrent test.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"threads": 10}
+            ),
+            metrics=MetricsSpec(
+                metrics={"test": "concurrency"}
+            )
         )
         
         app.state.experiment_manager = mock_experiment_manager

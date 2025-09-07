@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ruckus_server.core.experiment_manager import ExperimentManager
 from ruckus_server.core.config import ExperimentManagerSettings
-from ruckus_server.core.storage.base import ExperimentAlreadyExistsException, ExperimentNotFoundException, ExperimentHasJobsException
+from ruckus_server.core.storage.base import ExperimentAlreadyExistsException, ExperimentNotFoundException
 from ruckus_common.models import ExperimentSpec, TaskType
 
 
@@ -116,7 +116,7 @@ class TestExperimentManager:
         """Test creating experiment that already exists."""
         # Mock storage backend to raise exception
         experiment_manager.storage_backend.create_experiment = AsyncMock(
-            side_effect=ExperimentAlreadyExistsException(sample_experiment_spec.experiment_id)
+            side_effect=ExperimentAlreadyExistsException(sample_experiment_spec.id)
         )
         
         with pytest.raises(ExperimentAlreadyExistsException) as exc_info:
@@ -365,22 +365,6 @@ root:
         
         assert exc_info.value.experiment_id == experiment_id
 
-    @pytest.mark.asyncio
-    async def test_delete_experiment_has_jobs(self, experiment_manager):
-        """Test deleting experiment that has associated jobs."""
-        experiment_id = "experiment-with-jobs"
-        job_count = 5
-        
-        # Mock storage backend to raise exception
-        experiment_manager.storage_backend.delete_experiment = AsyncMock(
-            side_effect=ExperimentHasJobsException(experiment_id, job_count)
-        )
-        
-        with pytest.raises(ExperimentHasJobsException) as exc_info:
-            await experiment_manager.delete_experiment(experiment_id)
-        
-        assert exc_info.value.experiment_id == experiment_id
-        assert exc_info.value.job_count == job_count
 
     @pytest.mark.asyncio
     async def test_delete_experiment_not_started(self, experiment_manager_settings):
@@ -464,8 +448,6 @@ root:
         def mock_delete_side_effect(experiment_id):
             if experiment_id == "not-found":
                 raise ExperimentNotFoundException(experiment_id)
-            elif experiment_id == "has-jobs":
-                raise ExperimentHasJobsException(experiment_id, 2)
             else:
                 return {
                     "experiment_id": experiment_id,
@@ -481,10 +463,6 @@ root:
         # Test not found
         with pytest.raises(ExperimentNotFoundException):
             await experiment_manager.delete_experiment("not-found")
-        
-        # Test has jobs
-        with pytest.raises(ExperimentHasJobsException):
-            await experiment_manager.delete_experiment("has-jobs")
 
     # List Experiments Tests
     @pytest.mark.asyncio

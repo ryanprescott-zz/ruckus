@@ -2,13 +2,12 @@
 
 from fastapi import APIRouter
 
-from .routers import agents, jobs, experiments
+from .routers import agents, experiments
 
 api_router = APIRouter()
 
 # Include routers
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
-api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(experiments.router, prefix="/experiments", tags=["experiments"])
 
 
@@ -19,7 +18,6 @@ async def api_info():
         "version": "v1",
         "endpoints": [
             "/agents",
-            "/jobs",
             "/experiments",
         ]
     }

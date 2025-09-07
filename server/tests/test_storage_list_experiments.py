@@ -4,7 +4,8 @@ import pytest
 import pytest_asyncio
 from ruckus_server.core.storage.sqlite import SQLiteStorageBackend
 from ruckus_server.core.config import SQLiteSettings
-from ruckus_common.models import ExperimentSpec, TaskType
+from ruckus_common.models import (ExperimentSpec, TaskType, TaskSpec, FrameworkSpec, MetricsSpec, 
+                                  LLMGenerationParams, PromptTemplate, PromptMessage, PromptRole, FrameworkName)
 
 
 @pytest.fixture
@@ -27,34 +28,81 @@ async def storage_backend(storage_settings):
 @pytest.fixture
 def sample_experiment_specs():
     """Create sample experiment specs for testing."""
-    from ruckus_common.models import TaskType
     return [
         ExperimentSpec(
-            experiment_id="test-list-experiment-1",
             name="Test List Experiment 1",
             description="First experiment for list testing",
-            models=["test-model-1"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=["test", "version-1.0"],
-            base_parameters={"learning_rate": 0.01, "epochs": 10}
+            model="test-model-1",
+            task=TaskSpec(
+                name="list_task_1",
+                type=TaskType.LLM_GENERATION,
+                description="List test task 1",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test list experiment 1.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"learning_rate": 0.01, "epochs": 10}
+            ),
+            metrics=MetricsSpec(
+                metrics={"test": "classification", "version": "1.0"}
+            )
         ),
         ExperimentSpec(
-            experiment_id="test-list-experiment-2",
             name="Test List Experiment 2",
             description="Second experiment for list testing",
-            models=["test-model-2"],
-            task_type=TaskType.CLASSIFICATION,
-            tags=["production", "version-2.0"],
-            base_parameters={"learning_rate": 0.001, "epochs": 20}
+            model="test-model-2",
+            task=TaskSpec(
+                name="list_task_2",
+                type=TaskType.LLM_GENERATION,
+                description="List test task 2",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test list experiment 2.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"learning_rate": 0.001, "epochs": 20}
+            ),
+            metrics=MetricsSpec(
+                metrics={"production": "classification", "version": "2.0"}
+            )
         ),
         ExperimentSpec(
-            experiment_id="test-list-experiment-3",
             name="Test List Experiment 3",
             description="Third experiment for list testing",
-            models=["test-model-3"],
-            task_type=TaskType.GENERATION,
-            tags=["test", "version-1.5"],
-            base_parameters={"learning_rate": 0.005, "epochs": 15}
+            model="test-model-3",
+            task=TaskSpec(
+                name="list_task_3",
+                type=TaskType.LLM_GENERATION,
+                description="List test task 3",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test list experiment 3.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={"learning_rate": 0.005, "epochs": 15}
+            ),
+            metrics=MetricsSpec(
+                metrics={"test": "classification", "version": "1.5"}
+            )
         )
     ]
 
@@ -87,11 +135,11 @@ class TestListExperimentsSuccess:
         assert isinstance(result[0], ExperimentSpec)
         returned_spec = result[0]
         
-        assert returned_spec.experiment_id == spec.experiment_id
+        assert returned_spec.id == spec.id
         assert returned_spec.name == spec.name
         assert returned_spec.description == spec.description
-        assert returned_spec.tags == spec.tags
-        assert returned_spec.base_parameters == spec.base_parameters
+        assert returned_spec.metrics.metrics == spec.metrics.metrics
+        assert returned_spec.framework.params == spec.framework.params
     
     @pytest.mark.asyncio
     async def test_list_experiments_multiple(self, storage_backend, sample_experiment_specs):
@@ -108,64 +156,80 @@ class TestListExperimentsSuccess:
         assert all(isinstance(spec, ExperimentSpec) for spec in result)
         
         # Extract experiment IDs from results
-        returned_ids = {spec.experiment_id for spec in result}
-        expected_ids = {spec.experiment_id for spec in sample_experiment_specs}
+        returned_ids = {spec.id for spec in result}
+        expected_ids = {spec.id for spec in sample_experiment_specs}
         assert returned_ids == expected_ids
         
         # Verify each experiment is correctly returned
-        result_by_id = {spec.experiment_id: spec for spec in result}
+        result_by_id = {spec.id: spec for spec in result}
         for original_spec in sample_experiment_specs:
-            returned_spec = result_by_id[original_spec.experiment_id]
+            returned_spec = result_by_id[original_spec.id]
             assert returned_spec.name == original_spec.name
             assert returned_spec.description == original_spec.description
-            assert returned_spec.tags == original_spec.tags
-            assert returned_spec.base_parameters == original_spec.base_parameters
+            assert returned_spec.metrics.metrics == original_spec.metrics.metrics
+            assert returned_spec.framework.params == original_spec.framework.params
     
     @pytest.mark.asyncio
     async def test_list_experiments_complex_parameters(self, storage_backend):
         """Test listing experiments with complex parameter structures."""
         # Setup
         complex_spec = ExperimentSpec(
-            experiment_id="complex-list-test",
             name="Complex List Test",
             description="Testing complex parameters in list",
-            models=["test-model"],
-            task_type=TaskType.GENERATION,
-            tags=["complexity-high", "framework-pytorch"],
-            base_parameters={
-                "model": {
-                    "architecture": "transformer",
-                    "layers": [
-                        {"type": "attention", "heads": 8, "dim": 512},
-                        {"type": "feedforward", "dim": 2048, "dropout": 0.1}
-                    ],
-                    "embedding": {"vocab_size": 50000, "dim": 512}
-                },
-                "training": {
-                    "optimizer": {
-                        "name": "adam",
-                        "lr": 1e-4,
-                        "betas": [0.9, 0.999],
-                        "eps": 1e-8
+            model="test-model",
+            task=TaskSpec(
+                name="complex_list_task",
+                type=TaskType.LLM_GENERATION,
+                description="Complex list test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test complex parameters.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={
+                    "model": {
+                        "architecture": "transformer",
+                        "layers": [
+                            {"type": "attention", "heads": 8, "dim": 512},
+                            {"type": "feedforward", "dim": 2048, "dropout": 0.1}
+                        ],
+                        "embedding": {"vocab_size": 50000, "dim": 512}
                     },
-                    "scheduler": {
-                        "type": "cosine",
-                        "warmup_steps": 1000,
-                        "total_steps": 100000
+                    "training": {
+                        "optimizer": {
+                            "name": "adam",
+                            "lr": 1e-4,
+                            "betas": [0.9, 0.999],
+                            "eps": 1e-8
+                        },
+                        "scheduler": {
+                            "type": "cosine",
+                            "warmup_steps": 1000,
+                            "total_steps": 100000
+                        },
+                        "batch_size": 32,
+                        "gradient_clip": 1.0
                     },
-                    "batch_size": 32,
-                    "gradient_clip": 1.0
-                },
-                "data": {
-                    "source": "/path/to/data",
-                    "preprocessing": ["tokenize", "normalize", "truncate"],
-                    "augmentation": {
-                        "enabled": True,
-                        "methods": ["synonym_replacement", "random_insertion"],
-                        "probability": 0.1
+                    "data": {
+                        "source": "/path/to/data",
+                        "preprocessing": ["tokenize", "normalize", "truncate"],
+                        "augmentation": {
+                            "enabled": True,
+                            "methods": ["synonym_replacement", "random_insertion"],
+                            "probability": 0.1
+                        }
                     }
                 }
-            }
+            ),
+            metrics=MetricsSpec(
+                metrics={"complexity": "high", "framework": "pytorch"}
+            )
         )
         
         await storage_backend.create_experiment(complex_spec)
@@ -178,10 +242,10 @@ class TestListExperimentsSuccess:
         returned_spec = result[0]
         
         # Verify complex structure is preserved
-        assert returned_spec.base_parameters["model"]["architecture"] == "transformer"
-        assert len(returned_spec.base_parameters["model"]["layers"]) == 2
-        assert returned_spec.base_parameters["training"]["optimizer"]["betas"] == [0.9, 0.999]
-        assert returned_spec.base_parameters["data"]["augmentation"]["methods"] == ["synonym_replacement", "random_insertion"]
+        assert returned_spec.framework.params["model"]["architecture"] == "transformer"
+        assert len(returned_spec.framework.params["model"]["layers"]) == 2
+        assert returned_spec.framework.params["training"]["optimizer"]["betas"] == [0.9, 0.999]
+        assert returned_spec.framework.params["data"]["augmentation"]["methods"] == ["synonym_replacement", "random_insertion"]
     
     @pytest.mark.asyncio
     async def test_list_experiments_after_deletion(self, storage_backend, sample_experiment_specs):
@@ -191,22 +255,22 @@ class TestListExperimentsSuccess:
             await storage_backend.create_experiment(spec)
         
         # Delete one experiment
-        await storage_backend.delete_experiment(sample_experiment_specs[1].experiment_id)
+        await storage_backend.delete_experiment(sample_experiment_specs[1].id)
         
         # Execute
         result = await storage_backend.list_experiments()
         
         # Verify
         assert len(result) == 2
-        returned_ids = {spec.experiment_id for spec in result}
+        returned_ids = {spec.id for spec in result}
         expected_ids = {
-            sample_experiment_specs[0].experiment_id,
-            sample_experiment_specs[2].experiment_id
+            sample_experiment_specs[0].id,
+            sample_experiment_specs[2].id
         }
         assert returned_ids == expected_ids
         
         # Verify deleted experiment is not in results
-        assert sample_experiment_specs[1].experiment_id not in returned_ids
+        assert sample_experiment_specs[1].id not in returned_ids
 
 
 class TestListExperimentsDataIntegrity:
@@ -217,37 +281,53 @@ class TestListExperimentsDataIntegrity:
         """Test that all JSON data types are preserved correctly."""
         # Setup
         spec_with_types = ExperimentSpec(
-            experiment_id="json-types-test",
             name="JSON Types Test",
             description="Testing all JSON data types",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=["json-types", "test"],
-            base_parameters={
-                "tags_data": {
-                    "string": "test_string",
-                    "integer": 42,
-                    "float": 3.14159,
-                    "boolean_true": True,
-                    "boolean_false": False,
-                    "null_value": None,
-                    "nested_object": {"key": "value", "number": 123},
-                    "array": [1, 2, 3, "mixed", True]
-                },
-                "unicode": "测试数据",
-                "special_chars": "test@#$%^&*()",
-                "scientific_notation": 1e-5,
-                "negative_number": -100,
-                "large_number": 1234567890,
-                "nested_arrays": [[1, 2], [3, 4], ["a", "b"]],
-                "deeply_nested": {
-                    "level1": {
-                        "level2": {
-                            "level3": {"data": "deep_value", "count": 999}
+            model="test-model",
+            task=TaskSpec(
+                name="json_types_task",
+                type=TaskType.LLM_GENERATION,
+                description="JSON types test task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test JSON types.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={
+                    "tags_data": {
+                        "string": "test_string",
+                        "integer": 42,
+                        "float": 3.14159,
+                        "boolean_true": True,
+                        "boolean_false": False,
+                        "null_value": None,
+                        "nested_object": {"key": "value", "number": 123},
+                        "array": [1, 2, 3, "mixed", True]
+                    },
+                    "unicode": "测试数据",
+                    "special_chars": "test@#$%^&*()",
+                    "scientific_notation": 1e-5,
+                    "negative_number": -100,
+                    "large_number": 1234567890,
+                    "nested_arrays": [[1, 2], [3, 4], ["a", "b"]],
+                    "deeply_nested": {
+                        "level1": {
+                            "level2": {
+                                "level3": {"data": "deep_value", "count": 999}
+                            }
                         }
                     }
                 }
-            }
+            ),
+            metrics=MetricsSpec(
+                metrics={"json_types": "test"}
+            )
         )
         
         await storage_backend.create_experiment(spec_with_types)
@@ -260,7 +340,7 @@ class TestListExperimentsDataIntegrity:
         returned_spec = result[0]
         
         # Verify all data types are preserved
-        tags_data = returned_spec.base_parameters["tags_data"]
+        tags_data = returned_spec.framework.params["tags_data"]
         assert tags_data["string"] == "test_string"
         assert tags_data["integer"] == 42
         assert tags_data["float"] == 3.14159
@@ -270,23 +350,39 @@ class TestListExperimentsDataIntegrity:
         assert tags_data["nested_object"]["key"] == "value"
         assert tags_data["array"] == [1, 2, 3, "mixed", True]
         
-        assert returned_spec.base_parameters["unicode"] == "测试数据"
-        assert returned_spec.base_parameters["scientific_notation"] == 1e-5
-        assert returned_spec.base_parameters["negative_number"] == -100
-        assert returned_spec.base_parameters["deeply_nested"]["level1"]["level2"]["level3"]["data"] == "deep_value"
+        assert returned_spec.framework.params["unicode"] == "测试数据"
+        assert returned_spec.framework.params["scientific_notation"] == 1e-5
+        assert returned_spec.framework.params["negative_number"] == -100
+        assert returned_spec.framework.params["deeply_nested"]["level1"]["level2"]["level3"]["data"] == "deep_value"
     
     @pytest.mark.asyncio
     async def test_list_experiments_with_none_fields(self, storage_backend):
         """Test listing experiments with None values in optional fields."""
         # Setup
         spec_with_none = ExperimentSpec(
-            experiment_id="none-fields-test",
             name="None Fields Test",
             description=None,  # None description
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            tags=[],
-            base_parameters={}
+            model="test-model",
+            task=TaskSpec(
+                name="none_fields_task",
+                type=TaskType.LLM_GENERATION,
+                description="None fields task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test none fields.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={}
+            ),
+            metrics=MetricsSpec(
+                metrics={}
+            )
         )
         
         await storage_backend.create_experiment(spec_with_none)
@@ -297,11 +393,11 @@ class TestListExperimentsDataIntegrity:
         # Verify
         assert len(result) == 1
         returned_spec = result[0]
-        assert returned_spec.experiment_id == "none-fields-test"
+        assert returned_spec.id == spec_with_none.id
         assert returned_spec.name == "None Fields Test"
         assert returned_spec.description is None
-        assert returned_spec.tags == []
-        assert returned_spec.base_parameters == {}
+        assert returned_spec.metrics.metrics == {}
+        assert returned_spec.framework.params == {}
     
     @pytest.mark.asyncio
     async def test_list_experiments_order_consistency(self, storage_backend, sample_experiment_specs):
@@ -321,9 +417,9 @@ class TestListExperimentsDataIntegrity:
         assert all(len(result) == 3 for result in results)
         
         # Verify order consistency (all calls should return same order)
-        first_result_ids = [spec.experiment_id for spec in results[0]]
+        first_result_ids = [spec.id for spec in results[0]]
         for result in results[1:]:
-            result_ids = [spec.experiment_id for spec in result]
+            result_ids = [spec.id for spec in result]
             assert result_ids == first_result_ids
     
     @pytest.mark.asyncio
@@ -344,8 +440,8 @@ class TestListExperimentsDataIntegrity:
             assert len(result) == 3
             assert all(isinstance(spec, ExperimentSpec) for spec in result)
             
-            returned_ids = {spec.experiment_id for spec in result}
-            expected_ids = {spec.experiment_id for spec in sample_experiment_specs}
+            returned_ids = {spec.id for spec in result}
+            expected_ids = {spec.id for spec in sample_experiment_specs}
             assert returned_ids == expected_ids
 
 
@@ -359,17 +455,33 @@ class TestListExperimentsPerformance:
         experiment_count = 100
         for i in range(experiment_count):
             spec = ExperimentSpec(
-                experiment_id=f"perf-test-{i:03d}",
                 name=f"Performance Test {i}",
                 description=f"Performance testing experiment number {i}",
-                models=["test-model"],
-                task_type=TaskType.SUMMARIZATION,
-                tags=[f"index-{i}", "batch-performance_test"],
-                base_parameters={
-                    "value": i * 10,
-                    "config": {"setting": f"value_{i}"},
-                    "enabled": i % 2 == 0
-                }
+                model="test-model",
+                task=TaskSpec(
+                    name=f"perf_task_{i}",
+                    type=TaskType.LLM_GENERATION,
+                    description=f"Performance task {i}",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content=f"Performance test {i}.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={
+                        "value": i * 10,
+                        "config": {"setting": f"value_{i}"},
+                        "enabled": i % 2 == 0
+                    }
+                ),
+                metrics=MetricsSpec(
+                    metrics={"index": str(i), "batch": "performance_test"}
+                )
             )
             await storage_backend.create_experiment(spec)
         
@@ -380,11 +492,14 @@ class TestListExperimentsPerformance:
         assert len(result) == experiment_count
         assert all(isinstance(spec, ExperimentSpec) for spec in result)
         
-        # Verify some specific experiments
-        result_by_id = {spec.experiment_id: spec for spec in result}
-        assert "perf-test-000" in result_by_id
-        assert "perf-test-099" in result_by_id
-        assert result_by_id["perf-test-050"].base_parameters["value"] == 500
+        # Verify some specific experiments exist with correct values
+        result_by_name = {spec.name: spec for spec in result}
+        assert "Performance Test 0" in result_by_name
+        assert "Performance Test 99" in result_by_name
+        
+        # Check parameter values for a specific experiment
+        perf_test_50 = result_by_name["Performance Test 50"]
+        assert perf_test_50.framework.params["value"] == 500
     
     @pytest.mark.asyncio
     async def test_list_experiments_large_parameters(self, storage_backend):
@@ -403,13 +518,29 @@ class TestListExperimentsPerformance:
             }
         
         large_spec = ExperimentSpec(
-            experiment_id="large-params-test",
             name="Large Parameters Test",
             description="Testing very large parameter structures",
-            models=["test-model"],
-            task_type=TaskType.GENERATION,
-            tags=["size-large", "complexity-extreme"],
-            base_parameters=large_params
+            model="test-model",
+            task=TaskSpec(
+                name="large_params_task",
+                type=TaskType.LLM_GENERATION,
+                description="Large parameters task",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[
+                            PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                            PromptMessage(role=PromptRole.USER, content="Test large parameters.")
+                        ]
+                    )
+                )
+            ),
+            framework=FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params=large_params
+            ),
+            metrics=MetricsSpec(
+                metrics={"size": "large", "complexity": "extreme"}
+            )
         )
         
         await storage_backend.create_experiment(large_spec)
@@ -420,10 +551,10 @@ class TestListExperimentsPerformance:
         # Verify
         assert len(result) == 1
         returned_spec = result[0]
-        assert returned_spec.experiment_id == "large-params-test"
-        assert len(returned_spec.base_parameters) == 50
-        assert "section_25" in returned_spec.base_parameters
-        assert len(returned_spec.base_parameters["section_25"]["data"]) == 30
+        assert returned_spec.id == large_spec.id
+        assert len(returned_spec.framework.params) == 50
+        assert "section_25" in returned_spec.framework.params
+        assert len(returned_spec.framework.params["section_25"]["data"]) == 30
 
 
 class TestListExperimentsIsolation:
@@ -435,31 +566,79 @@ class TestListExperimentsIsolation:
         # Setup - create experiments with similar IDs
         similar_specs = [
             ExperimentSpec(
-                experiment_id="iso-test-1",
                 name="Isolation Test 1",
                 description="First isolation test",
-                models=["test-model"],
-                task_type=TaskType.SUMMARIZATION,
-                tags=["test-id-1"],
-                base_parameters={"value": "first"}
+                model="test-model",
+                task=TaskSpec(
+                    name="iso_task_1",
+                    type=TaskType.LLM_GENERATION,
+                    description="Isolation task 1",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content="Isolation test 1.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"value": "first"}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"test_id": "1"}
+                )
             ),
             ExperimentSpec(
-                experiment_id="iso-test-10",
                 name="Isolation Test 10", 
                 description="Tenth isolation test",
-                models=["test-model"],
-                task_type=TaskType.SUMMARIZATION,
-                tags=["test-id-10"],
-                base_parameters={"value": "tenth"}
+                model="test-model",
+                task=TaskSpec(
+                    name="iso_task_10",
+                    type=TaskType.LLM_GENERATION,
+                    description="Isolation task 10",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content="Isolation test 10.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"value": "tenth"}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"test_id": "10"}
+                )
             ),
             ExperimentSpec(
-                experiment_id="iso-test-11",
                 name="Isolation Test 11",
                 description="Eleventh isolation test",
-                models=["test-model"],
-                task_type=TaskType.SUMMARIZATION,
-                tags=["test-id-11"],
-                base_parameters={"value": "eleventh"}
+                model="test-model",
+                task=TaskSpec(
+                    name="iso_task_11",
+                    type=TaskType.LLM_GENERATION,
+                    description="Isolation task 11",
+                    params=LLMGenerationParams(
+                        prompt_template=PromptTemplate(
+                            messages=[
+                                PromptMessage(role=PromptRole.SYSTEM, content="You are a helpful assistant."),
+                                PromptMessage(role=PromptRole.USER, content="Isolation test 11.")
+                            ]
+                        )
+                    )
+                ),
+                framework=FrameworkSpec(
+                    name=FrameworkName.TRANSFORMERS,
+                    params={"value": "eleventh"}
+                ),
+                metrics=MetricsSpec(
+                    metrics={"test_id": "11"}
+                )
             )
         ]
         
@@ -471,13 +650,13 @@ class TestListExperimentsIsolation:
         
         # Verify
         assert len(result) == 3
-        result_by_id = {spec.experiment_id: spec for spec in result}
+        result_by_name = {spec.name: spec for spec in result}
         
         # Verify each experiment has correct data
-        assert result_by_id["iso-test-1"].base_parameters["value"] == "first"
-        assert result_by_id["iso-test-10"].base_parameters["value"] == "tenth"
-        assert result_by_id["iso-test-11"].base_parameters["value"] == "eleventh"
+        assert result_by_name["Isolation Test 1"].framework.params["value"] == "first"
+        assert result_by_name["Isolation Test 10"].framework.params["value"] == "tenth"
+        assert result_by_name["Isolation Test 11"].framework.params["value"] == "eleventh"
         
-        assert "test-id-1" in result_by_id["iso-test-1"].tags
-        assert "test-id-10" in result_by_id["iso-test-10"].tags
-        assert "test-id-11" in result_by_id["iso-test-11"].tags
+        assert result_by_name["Isolation Test 1"].metrics.metrics["test_id"] == "1"
+        assert result_by_name["Isolation Test 10"].metrics.metrics["test_id"] == "10"
+        assert result_by_name["Isolation Test 11"].metrics.metrics["test_id"] == "11"

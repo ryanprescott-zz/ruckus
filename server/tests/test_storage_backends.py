@@ -134,21 +134,12 @@ class TestSQLiteStorageBackend:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_create_experiment(self, sqlite_storage):
+    async def test_create_experiment(self, sqlite_storage, sample_experiment_spec):
         """Test creating an experiment."""
-        from ruckus_common.models import ExperimentSpec, TaskType
         
-        experiment_spec = ExperimentSpec(
-            experiment_id="exp-1",
-            name="Test Experiment",
-            description="A test experiment",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
-        )
-        
-        result = await sqlite_storage.create_experiment(experiment_spec)
+        result = await sqlite_storage.create_experiment(sample_experiment_spec)
         assert isinstance(result, dict)
-        assert result["experiment_id"] == "exp-1"
+        assert result["experiment_id"] == sample_experiment_spec.id
         assert "created_at" in result
 
     @pytest.mark.asyncio
@@ -162,40 +153,38 @@ class TestSQLiteStorageBackend:
         with pytest.raises(ExperimentAlreadyExistsException) as exc_info:
             await sqlite_storage.create_experiment(sample_experiment_spec)
         
-        assert exc_info.value.experiment_id == sample_experiment_spec.experiment_id
+        assert exc_info.value.experiment_id == sample_experiment_spec.id
 
     @pytest.mark.asyncio
     async def test_create_experiment_complex_spec(self, sqlite_storage, experiment_spec_factory):
         """Test creating experiment with complex ExperimentSpec."""
-        from ruckus_common.models import TaskType, AgentType, AgentRequirements
+        from ruckus_common.models import TaskType
         
         # Create complex experiment spec
         complex_spec = experiment_spec_factory(
-            experiment_id="complex-exp",
             name="Complex Experiment",
-            models=["gpt-3.5-turbo", "gpt-4", "claude-2"],
-            task_type=TaskType.QUESTION_ANSWERING,
-            priority=8,
-            timeout_seconds=7200,
-            owner="test-user",
-            tags=["complex", "multi-model", "qa"]
-        )
-        
-        # Set agent requirements
-        complex_spec.agent_requirements = AgentRequirements(
-            required_models=["gpt-3.5-turbo"],
-            preferred_models=["gpt-4"],
-            min_gpu_count=2,
-            agent_types=[AgentType.WHITE_BOX, AgentType.GRAY_BOX]
+            description="A complex experiment with multiple parameters",
+            model="gpt-4",
+            framework_params={
+                "batch_size": 16,
+                "learning_rate": 0.001,
+                "epochs": 50,
+                "optimizer": "adam",
+                "complex_config": {
+                    "nested_param": "value",
+                    "list_param": [1, 2, 3]
+                }
+            },
+            metrics={"complexity": "high", "multi_model": "true", "qa": "enabled"}
         )
         
         result = await sqlite_storage.create_experiment(complex_spec)
         
-        assert result["experiment_id"] == "complex-exp"
+        assert result["experiment_id"] == complex_spec.id
         assert "created_at" in result
         
         # Verify experiment was stored correctly by checking the database
-        experiment = await sqlite_storage.get_experiment("complex-exp")
+        experiment = await sqlite_storage.get_experiment(complex_spec.id)
         assert experiment is not None
         assert experiment.name == "Complex Experiment"
 
@@ -205,10 +194,10 @@ class TestSQLiteStorageBackend:
         result = await sqlite_storage.create_experiment(sample_experiment_spec)
         
         # Retrieve the experiment to verify serialization
-        experiment = await sqlite_storage.get_experiment(sample_experiment_spec.experiment_id)
+        experiment = await sqlite_storage.get_experiment(sample_experiment_spec.id)
         
         assert experiment is not None
-        assert experiment.experiment_id == sample_experiment_spec.experiment_id
+        assert experiment.id == sample_experiment_spec.id
         assert experiment.name == sample_experiment_spec.name
         assert experiment.description == sample_experiment_spec.description
         
@@ -237,41 +226,39 @@ class TestSQLiteStorageBackend:
         
         # Verify all were created
         assert len(results) == 5
-        for i, result in enumerate(results):
-            assert result["experiment_id"] == f"multi-exp-{i}"
+        for i, (result, spec) in enumerate(zip(results, experiments)):
+            assert result["experiment_id"] == spec.id
             assert "created_at" in result
         
         # Verify they can all be retrieved
-        for i in range(5):
-            experiment = await sqlite_storage.get_experiment(f"multi-exp-{i}")
+        for spec in experiments:
+            experiment = await sqlite_storage.get_experiment(spec.id)
             assert experiment is not None
-            assert experiment.name == f"Multi Experiment {i}"
+            assert experiment.name == spec.name
 
     @pytest.mark.asyncio
-    async def test_create_experiment_with_datetime_fields(self, sqlite_storage):
+    async def test_create_experiment_with_datetime_fields(self, sqlite_storage, experiment_spec_factory):
         """Test creating experiment with datetime fields in ExperimentSpec."""
         from ruckus_common.models import ExperimentSpec, TaskType
         from datetime import datetime, timezone
         
         # Create experiment spec with explicit datetime
         custom_time = datetime(2023, 12, 25, 10, 30, 0, tzinfo=timezone.utc)
-        experiment_spec = ExperimentSpec(
-            experiment_id="datetime-exp",
+        experiment_spec = experiment_spec_factory(
             name="DateTime Test Experiment",
-            description="Testing datetime serialization",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION,
-            created_at=custom_time,
-            updated_at=custom_time
+            description="Testing datetime serialization"
         )
+        # Set the timestamps after creation
+        experiment_spec.created_at = custom_time
+        experiment_spec.updated_at = custom_time
         
         result = await sqlite_storage.create_experiment(experiment_spec)
         
-        assert result["experiment_id"] == "datetime-exp"
+        assert result["experiment_id"] == experiment_spec.id
         assert "created_at" in result  # This is the database creation time, not the spec time
         
         # Verify experiment was stored
-        experiment = await sqlite_storage.get_experiment("datetime-exp")
+        experiment = await sqlite_storage.get_experiment(experiment_spec.id)
         assert experiment is not None
 
     @pytest.mark.asyncio
@@ -281,39 +268,33 @@ class TestSQLiteStorageBackend:
         
         # Test with minimal required fields
         minimal_spec = experiment_spec_factory(
-            experiment_id="minimal-exp",
             name="Minimal Experiment",
-            models=["minimal-model"],
-            task_type=TaskType.CUSTOM,
             description=None,  # Optional field
-            owner=None,        # Optional field
-            tags=[]           # Empty list
+            model="minimal-model"
         )
         
         result = await sqlite_storage.create_experiment(minimal_spec)
-        assert result["experiment_id"] == "minimal-exp"
+        assert result["experiment_id"] == minimal_spec.id
         
         # Test with very long strings
         long_spec = experiment_spec_factory(
-            experiment_id="long-exp",
             name="A" * 1000,  # Very long name
             description="B" * 5000,  # Very long description
-            models=["long-model"]
+            model="long-model"
         )
         
         result = await sqlite_storage.create_experiment(long_spec)
-        assert result["experiment_id"] == "long-exp"
+        assert result["experiment_id"] == long_spec.id
         
         # Test with special characters
         special_spec = experiment_spec_factory(
-            experiment_id="special-exp-äöü-🚀",
             name="Special Characters: äöü 🚀 Test",
             description="Testing unicode: αβγ 中文 🎉",
-            models=["special-model"]
+            model="special-model"
         )
         
         result = await sqlite_storage.create_experiment(special_spec)
-        assert result["experiment_id"] == "special-exp-äöü-🚀"
+        assert result["experiment_id"] == special_spec.id
 
     @pytest.mark.asyncio
     async def test_delete_experiment_success(self, sqlite_storage, sample_experiment_spec):
@@ -322,16 +303,16 @@ class TestSQLiteStorageBackend:
         await sqlite_storage.create_experiment(sample_experiment_spec)
         
         # Delete the experiment
-        result = await sqlite_storage.delete_experiment(sample_experiment_spec.experiment_id)
+        result = await sqlite_storage.delete_experiment(sample_experiment_spec.id)
         
         assert isinstance(result, dict)
-        assert result["experiment_id"] == sample_experiment_spec.experiment_id
+        assert result["experiment_id"] == sample_experiment_spec.id
         assert "deleted_at" in result
         
         # Verify experiment is actually deleted
         from ruckus_server.core.storage.base import ExperimentNotFoundException
         with pytest.raises(ExperimentNotFoundException):
-            await sqlite_storage.get_experiment(sample_experiment_spec.experiment_id)
+            await sqlite_storage.get_experiment(sample_experiment_spec.id)
 
     @pytest.mark.asyncio
     async def test_delete_experiment_not_found(self, sqlite_storage):
@@ -343,50 +324,6 @@ class TestSQLiteStorageBackend:
         
         assert exc_info.value.experiment_id == "non-existent-experiment"
 
-    @pytest.mark.asyncio
-    async def test_delete_experiment_with_jobs(self, sqlite_storage, sample_experiment_spec):
-        """Test deleting experiment that has associated jobs raises exception."""
-        from ruckus_server.core.storage.base import ExperimentHasJobsException
-        
-        # Create experiment first
-        await sqlite_storage.create_experiment(sample_experiment_spec)
-        
-        # Create a job associated with the experiment
-        await sqlite_storage.create_job(
-            job_id="test-job-1",
-            experiment_id=sample_experiment_spec.experiment_id,
-            config={"test": "config"}
-        )
-        
-        # Try to delete experiment
-        with pytest.raises(ExperimentHasJobsException) as exc_info:
-            await sqlite_storage.delete_experiment(sample_experiment_spec.experiment_id)
-        
-        assert exc_info.value.experiment_id == sample_experiment_spec.experiment_id
-        assert exc_info.value.job_count == 1
-
-    @pytest.mark.asyncio
-    async def test_delete_experiment_with_multiple_jobs(self, sqlite_storage, sample_experiment_spec):
-        """Test deleting experiment with multiple jobs raises exception with correct count."""
-        from ruckus_server.core.storage.base import ExperimentHasJobsException
-        
-        # Create experiment first
-        await sqlite_storage.create_experiment(sample_experiment_spec)
-        
-        # Create multiple jobs associated with the experiment
-        for i in range(3):
-            await sqlite_storage.create_job(
-                job_id=f"test-job-{i}",
-                experiment_id=sample_experiment_spec.experiment_id,
-                config={"test": f"config-{i}"}
-            )
-        
-        # Try to delete experiment
-        with pytest.raises(ExperimentHasJobsException) as exc_info:
-            await sqlite_storage.delete_experiment(sample_experiment_spec.experiment_id)
-        
-        assert exc_info.value.experiment_id == sample_experiment_spec.experiment_id
-        assert exc_info.value.job_count == 3
 
     @pytest.mark.asyncio
     async def test_delete_multiple_experiments(self, sqlite_storage, experiment_spec_factory):
@@ -396,7 +333,7 @@ class TestSQLiteStorageBackend:
         for i in range(3):
             spec = experiment_spec_factory(experiment_id=f"delete-multi-{i}")
             await sqlite_storage.create_experiment(spec)
-            experiment_ids.append(spec.experiment_id)
+            experiment_ids.append(spec.id)
         
         # Delete all experiments
         results = []
@@ -417,68 +354,38 @@ class TestSQLiteStorageBackend:
                 await sqlite_storage.get_experiment(experiment_id)
 
     @pytest.mark.asyncio
-    async def test_delete_experiment_special_characters(self, sqlite_storage):
-        """Test deleting experiment with special characters in ID."""
-        from ruckus_common.models import ExperimentSpec, TaskType
+    async def test_delete_experiment_special_characters(self, sqlite_storage, experiment_spec_factory):
+        """Test deleting experiment with special characters in name."""
         
-        experiment_id = "delete-exp-äöü-🚀"
-        experiment_spec = ExperimentSpec(
-            experiment_id=experiment_id,
-            name="Special Characters Delete Test",
-            description="Testing deletion with unicode characters",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
+        # Use special characters in name (ID will be auto-generated)
+        experiment_spec = experiment_spec_factory(
+            name="Special Characters Delete Test äöü 🚀",
+            description="Testing deletion with unicode characters"
         )
         
         # Create and then delete the experiment
         await sqlite_storage.create_experiment(experiment_spec)
-        result = await sqlite_storage.delete_experiment(experiment_id)
+        result = await sqlite_storage.delete_experiment(experiment_spec.id)
         
-        assert result["experiment_id"] == experiment_id
+        assert result["experiment_id"] == experiment_spec.id
         assert "deleted_at" in result
 
-    @pytest.mark.asyncio
-    async def test_delete_experiment_after_job_completion(self, sqlite_storage, sample_experiment_spec):
-        """Test that experiment can be deleted after all its jobs are deleted."""
-        # Create experiment
-        await sqlite_storage.create_experiment(sample_experiment_spec)
-        
-        # Create and complete a job
-        job_id = "test-job-complete"
-        await sqlite_storage.create_job(
-            job_id=job_id,
-            experiment_id=sample_experiment_spec.experiment_id,
-            config={"test": "config"}
-        )
-        
-        # The current implementation doesn't have a delete_job method,
-        # but let's verify the behavior when jobs exist
-        from ruckus_server.core.storage.base import ExperimentHasJobsException
-        with pytest.raises(ExperimentHasJobsException):
-            await sqlite_storage.delete_experiment(sample_experiment_spec.experiment_id)
-        
-        # Note: In a real scenario, you'd delete the job first, then the experiment would be deletable
 
     @pytest.mark.asyncio
-    async def test_delete_experiment_idempotent_failure(self, sqlite_storage):
+    async def test_delete_experiment_idempotent_failure(self, sqlite_storage, experiment_spec_factory):
         """Test that deleting the same experiment twice raises appropriate exception."""
         from ruckus_server.core.storage.base import ExperimentNotFoundException
         from ruckus_common.models import ExperimentSpec, TaskType
         
         # Create and delete experiment
-        spec = ExperimentSpec(
-            experiment_id="idempotent-delete-test",
-            name="Idempotent Test",
-            models=["test-model"],
-            task_type=TaskType.SUMMARIZATION
-        )
+        spec = experiment_spec_factory(name="Idempotent Test")
         
         await sqlite_storage.create_experiment(spec)
-        await sqlite_storage.delete_experiment(spec.experiment_id)
+        await sqlite_storage.delete_experiment(spec.id)
         
         # Try to delete again - should raise not found
         with pytest.raises(ExperimentNotFoundException):
-            await sqlite_storage.delete_experiment(spec.experiment_id)
+            await sqlite_storage.delete_experiment(spec.id)
 
     @pytest.mark.asyncio
     async def test_list_experiments_success(self, sqlite_storage, experiment_spec_factory):
@@ -486,7 +393,7 @@ class TestSQLiteStorageBackend:
         # Create multiple experiments
         experiment_specs = []
         for i in range(3):
-            spec = experiment_spec_factory(experiment_id=f"list-exp-{i}", name=f"List Experiment {i}")
+            spec = experiment_spec_factory(name=f"List Experiment {i}")
             experiment_specs.append(spec)
             await sqlite_storage.create_experiment(spec)
         
@@ -494,9 +401,10 @@ class TestSQLiteStorageBackend:
         experiments = await sqlite_storage.list_experiments()
         
         assert len(experiments) == 3
-        experiment_ids = [exp.experiment_id for exp in experiments]
-        for i in range(3):
-            assert f"list-exp-{i}" in experiment_ids
+        experiment_ids = [exp.id for exp in experiments]
+        expected_ids = [spec.id for spec in experiment_specs]
+        for expected_id in expected_ids:
+            assert expected_id in experiment_ids
 
     @pytest.mark.asyncio
     async def test_list_experiments_empty(self, sqlite_storage):
@@ -515,26 +423,17 @@ class TestSQLiteStorageBackend:
         experiment = experiments[0]
         
         # Verify all expected fields are present
-        assert hasattr(experiment, "experiment_id")
+        assert hasattr(experiment, "id")
         assert hasattr(experiment, "name")
         assert hasattr(experiment, "description")
         assert hasattr(experiment, "created_at")
         assert hasattr(experiment, "updated_at")
         
         # Verify values match
-        assert experiment.experiment_id == sample_experiment_spec.experiment_id
+        assert experiment.id == sample_experiment_spec.id
         assert experiment.name == sample_experiment_spec.name
         assert experiment.description == sample_experiment_spec.description
 
-    @pytest.mark.asyncio
-    async def test_create_job(self, sqlite_storage):
-        """Test creating a job."""
-        result = await sqlite_storage.create_job(
-            job_id="job-1",
-            experiment_id="exp-1",
-            config={"model": "test-model"}
-        )
-        assert result is True
 
     @pytest.mark.asyncio
     async def test_database_error_handling(self, sqlite_settings):

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from .base import StorageBackend, Base, Agent, Experiment, Job, ExperimentAlreadyExistsException, ExperimentNotFoundException, ExperimentHasJobsException
+from .base import StorageBackend, Base, Agent, Experiment, ExperimentAlreadyExistsException, ExperimentNotFoundException
 from ..config import SQLiteSettings
 from ruckus_common.models import AgentInfo, AgentType, RegisteredAgentInfo, ExperimentSpec
 
@@ -361,13 +361,6 @@ class SQLiteStorageBackend(StorageBackend):
                 if not experiment:
                     raise ExperimentNotFoundException(experiment_id)
                 
-                # Check for associated jobs
-                jobs_stmt = select(Job).where(Job.experiment_id == experiment_id)
-                jobs_result = await session.execute(jobs_stmt)
-                jobs = jobs_result.scalars().all()
-                
-                if jobs:
-                    raise ExperimentHasJobsException(experiment_id, len(jobs))
                 
                 # Delete the experiment
                 delete_stmt = delete(Experiment).where(Experiment.id == experiment_id)
@@ -381,158 +374,10 @@ class SQLiteStorageBackend(StorageBackend):
         
         try:
             return await self._retry_operation(_delete)
-        except (ExperimentNotFoundException, ExperimentHasJobsException):
+        except ExperimentNotFoundException:
             # Re-raise these specific exceptions without wrapping
             raise
         except Exception as e:
             self.logger.error(f"Failed to delete experiment {experiment_id}: {e}")
             raise
     
-    # Job management
-    async def create_job(self, job_id: str, experiment_id: str, 
-                        config: Dict[str, Any]) -> bool:
-        """Create a new job."""
-        async def _create():
-            async with self.session_factory() as session:
-                job = Job(
-                    id=job_id,
-                    experiment_id=experiment_id,
-                    config=config,
-                    status="scheduled"
-                )
-                session.add(job)
-                await session.commit()
-                return True
-        
-        try:
-            return await self._retry_operation(_create)
-        except Exception as e:
-            self.logger.error(f"Failed to create job {job_id}: {e}")
-            return False
-    
-    async def assign_job_to_agent(self, job_id: str, agent_id: str) -> bool:
-        """Assign a job to an agent."""
-        async def _assign():
-            async with self.session_factory() as session:
-                stmt = update(Job).where(Job.id == job_id).values(
-                    agent_id=agent_id,
-                    status="assigned",
-                    updated_at=datetime.now(timezone.utc)
-                )
-                result = await session.execute(stmt)
-                await session.commit()
-                return result.rowcount > 0
-        
-        try:
-            return await self._retry_operation(_assign)
-        except Exception as e:
-            self.logger.error(f"Failed to assign job {job_id} to agent {agent_id}: {e}")
-            return False
-    
-    async def update_job_status(self, job_id: str, status: str, 
-                               results: Optional[Dict[str, Any]] = None,
-                               error_message: Optional[str] = None) -> bool:
-        """Update job status and results."""
-        async def _update():
-            async with self.session_factory() as session:
-                values = {
-                    "status": status,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-                
-                if results is not None:
-                    values["results"] = results
-                
-                if error_message is not None:
-                    values["error_message"] = error_message
-                
-                if status == "running":
-                    values["started_at"] = datetime.now(timezone.utc)
-                elif status in ["completed", "failed"]:
-                    values["completed_at"] = datetime.now(timezone.utc)
-                
-                stmt = update(Job).where(Job.id == job_id).values(**values)
-                result = await session.execute(stmt)
-                await session.commit()
-                return result.rowcount > 0
-        
-        try:
-            return await self._retry_operation(_update)
-        except Exception as e:
-            self.logger.error(f"Failed to update job {job_id} status: {e}")
-            return False
-    
-    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
-        """Get job by ID."""
-        async def _get():
-            async with self.session_factory() as session:
-                stmt = select(Job).where(Job.id == job_id)
-                result = await session.execute(stmt)
-                job = result.scalar_one_or_none()
-                
-                if job:
-                    return {
-                        "id": job.id,
-                        "experiment_id": job.experiment_id,
-                        "agent_id": job.agent_id,
-                        "config": job.config,
-                        "status": job.status,
-                        "results": job.results,
-                        "error_message": job.error_message,
-                        "started_at": job.started_at,
-                        "completed_at": job.completed_at,
-                        "created_at": job.created_at,
-                        "updated_at": job.updated_at
-                    }
-                return None
-        
-        try:
-            return await self._retry_operation(_get)
-        except Exception as e:
-            self.logger.error(f"Failed to get job {job_id}: {e}")
-            return None
-    
-    async def list_jobs(self, experiment_id: Optional[str] = None,
-                       agent_id: Optional[str] = None,
-                       status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List jobs with optional filtering."""
-        async def _list():
-            async with self.session_factory() as session:
-                stmt = select(Job)
-                
-                if experiment_id:
-                    stmt = stmt.where(Job.experiment_id == experiment_id)
-                if agent_id:
-                    stmt = stmt.where(Job.agent_id == agent_id)
-                if status:
-                    stmt = stmt.where(Job.status == status)
-                
-                result = await session.execute(stmt)
-                jobs = result.scalars().all()
-                
-                return [
-                    {
-                        "id": job.id,
-                        "experiment_id": job.experiment_id,
-                        "agent_id": job.agent_id,
-                        "config": job.config,
-                        "status": job.status,
-                        "results": job.results,
-                        "error_message": job.error_message,
-                        "started_at": job.started_at,
-                        "completed_at": job.completed_at,
-                        "created_at": job.created_at,
-                        "updated_at": job.updated_at
-                    }
-                    for job in jobs
-                ]
-        
-        try:
-            return await self._retry_operation(_list)
-        except Exception as e:
-            self.logger.error(f"Failed to list jobs: {e}")
-            return []
-    
-    async def get_jobs_for_agent(self, agent_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get jobs assigned to a specific agent."""
-        return await self.list_jobs(agent_id=agent_id, status=status)

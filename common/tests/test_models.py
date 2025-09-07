@@ -4,9 +4,9 @@ import pytest
 from datetime import datetime
 from pydantic import ValidationError
 from ruckus_common.models import (
-    AgentType, JobStatus, TaskType,
+    AgentType, TaskType,
     AgentRegistrationResponse, AgentInfoResponse,
-    JobSpec, ExperimentSpec, MetricValue
+    ExperimentSpec, MetricValue
 )
 
 
@@ -19,12 +19,6 @@ class TestEnums:
         assert AgentType.GRAY_BOX == "gray_box"
         assert AgentType.BLACK_BOX == "black_box"
 
-    def test_job_status_values(self):
-        """Test job status enum values."""
-        assert JobStatus.QUEUED == "queued"
-        assert JobStatus.RUNNING == "running"
-        assert JobStatus.COMPLETED == "completed"
-        assert JobStatus.FAILED == "failed"
 
     def test_task_type_values(self):
         """Test task type enum values."""
@@ -203,40 +197,6 @@ class TestExperimentSpec:
                 priority=15  # > 10
             )
 
-
-class TestJobSpec:
-    """Test job specification model."""
-
-    def test_minimal_job_spec(self):
-        """Test creating minimal job spec."""
-        spec = JobSpec(
-            job_id="job-001",
-            experiment_id="exp-001",
-            model="gpt-3.5-turbo",
-            framework="transformers",
-            hardware_target="gpu",
-            task_type=TaskType.SUMMARIZATION
-        )
-        
-        assert spec.job_id == "job-001"
-        assert spec.experiment_id == "exp-001"
-        assert spec.status == JobStatus.QUEUED
-        assert spec.max_retries == 3
-        assert spec.timeout_seconds == 3600
-
-    def test_job_spec_status_progression(self):
-        """Test job status can be set."""
-        spec = JobSpec(
-            job_id="job-001",
-            experiment_id="exp-001",
-            model="model",
-            framework="framework",
-            hardware_target="cpu",
-            task_type=TaskType.GENERATION,
-            status=JobStatus.RUNNING
-        )
-        
-        assert spec.status == JobStatus.RUNNING
 
 
 class TestMetricValue:

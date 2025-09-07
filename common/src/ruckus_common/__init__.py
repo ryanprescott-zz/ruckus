@@ -4,14 +4,8 @@ __version__ = "0.1.0"
 
 from .models import (
     AgentType,
-    JobStatus,
-    JobStage,
     MetricType,
     ExperimentSpec,
-    JobSpec,
-    JobRequest,
-    JobUpdate,
-    JobResult,
     AgentCapabilitiesBase,
 )
 
@@ -34,14 +28,8 @@ from .constants import (
 __all__ = [
     # Models
     "AgentType",
-    "JobStatus",
-    "JobStage",
     "MetricType",
     "ExperimentSpec",
-    "JobSpec",
-    "JobRequest",
-    "JobUpdate",
-    "JobResult",
     "AgentCapabilitiesBase",
     # Protocol
     "MessageType",

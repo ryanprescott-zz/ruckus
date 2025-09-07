@@ -420,11 +420,19 @@ def experiment_spec_factory():
     def _create_experiment_spec(
         name: str = None,
         model: str = None,
+        experiment_id: str = None,  # Legacy parameter - will be ignored but won't break tests
         **kwargs
     ):
-        timestamp = datetime.now(timezone.utc).timestamp()
+        # If experiment_id was provided but no name, use experiment_id as name base
+        # This helps maintain test compatibility
+        if experiment_id and not name:
+            name = experiment_id.replace('-', ' ').replace('_', ' ').title()
+        elif not name:
+            timestamp = datetime.now(timezone.utc).timestamp()
+            name = f"Test Experiment {timestamp}"
+            
         return ExperimentSpec(
-            name=name or f"Test Experiment {timestamp}",
+            name=name,
             description=kwargs.get("description", "Test experiment description"),
             model=model or "test-model",
             task=TaskSpec(

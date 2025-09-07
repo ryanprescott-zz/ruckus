@@ -163,30 +163,6 @@ class AgentManagerSettings(BaseSettings):
         case_sensitive = False
 
 
-class SchedulerSettings(BaseSettings):
-    """Job scheduler settings."""
-    
-    max_concurrent_jobs: int = Field(default=10, description="Maximum concurrent jobs")
-    max_concurrent_jobs_per_agent: int = Field(
-        default=1,
-        description="Maximum concurrent jobs per agent"
-    )
-    job_timeout_default: int = Field(default=3600, description="Default job timeout in seconds")
-    job_timeout_seconds: int = Field(
-        default=3600,
-        description="Default job timeout in seconds"
-    )
-    job_poll_interval: int = Field(
-        default=30,
-        description="Job polling interval in seconds"
-    )
-    scheduler_interval: int = Field(default=5, description="Scheduler interval in seconds")
-    
-    class Config:
-        env_prefix = "RUCKUS_SCHEDULER_"
-        env_file = ".env"
-        case_sensitive = False
-
 
 class LoggingSettings(BaseSettings):
     """Logging configuration settings."""
@@ -233,7 +209,6 @@ class Settings(BaseSettings):
     postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
     sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
-    scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     
     class Config:
