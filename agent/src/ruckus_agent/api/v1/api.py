@@ -83,9 +83,9 @@ async def execute_job(execute_request: ExecuteJobRequest, request: Request):
         runs_per_job=1  # Default to single run
     )
     
-    # Execute the job using the agent
+    # Queue the job for execution (non-blocking)
     try:
-        await agent.execute_job(job_request)
+        await agent.queue_job(job_request)
         return {
             "job_id": execute_request.job_id,
             "status": "accepted",
