@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
 from ruckus_common.models import (
-    JobRequest, JobStatus, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
+    JobRequest, JobStatusEnum, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
     SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage,
     JobResultType
 )
@@ -528,7 +528,7 @@ class Agent:
         return JobResult(
             job_id=job.job_id,
             experiment_id=job.experiment_id,
-            status=JobStatus.COMPLETED if single_result.error is None else JobStatus.FAILED,
+            status=JobStatusEnum.COMPLETED if single_result.error is None else JobStatusEnum.FAILED,
             started_at=job_start_time,
             completed_at=single_result.completed_at,
             duration_seconds=single_result.duration_seconds,

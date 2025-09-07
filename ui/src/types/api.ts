@@ -23,6 +23,18 @@ export const AgentStatusEnum = {
 
 export type AgentStatusEnum = typeof AgentStatusEnum[keyof typeof AgentStatusEnum];
 
+export const JobStatusEnum = {
+  QUEUED: "queued",
+  ASSIGNED: "assigned", 
+  RUNNING: "running",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  CANCELLED: "cancelled",
+  TIMEOUT: "timeout"
+} as const;
+
+export type JobStatusEnum = typeof JobStatusEnum[keyof typeof JobStatusEnum];
+
 // Base interfaces
 export interface AgentInfo {
   agent_id: string;
@@ -45,6 +57,21 @@ export interface AgentStatus {
   queued_jobs: string[];
   uptime_seconds: number;
   timestamp: string; // ISO timestamp
+}
+
+// Job interfaces
+export interface JobStatus {
+  status: JobStatusEnum;
+  message?: string;
+  timestamp: string; // ISO timestamp
+}
+
+export interface JobInfo {
+  job_id: string;
+  experiment_id: string;
+  agent_id: string;
+  created_time: string; // ISO timestamp
+  status: JobStatus;
 }
 
 // API Request/Response models
@@ -196,6 +223,20 @@ export interface GetExperimentResponse {
   experiment: ExperimentSpec;
 }
 
+// Job API Response models
+export interface ListJobsResponse {
+  jobs: Record<string, JobInfo[]>; // Dictionary keyed by agent_id
+}
+
+export interface CreateJobRequest {
+  experiment_id: string;
+  agent_id: string;
+}
+
+export interface CreateJobResponse {
+  job_id: string;
+}
+
 export interface ExperimentTableRow {
   id: string;
   name: string;
@@ -203,4 +244,51 @@ export interface ExperimentTableRow {
   created: string; // Formatted timestamp
   remove: string; // For the remove action column
   experiment: ExperimentSpec; // Full experiment data
+}
+
+export interface JobTableRow {
+  job_id: string;
+  experiment_id: string;
+  agent_id: string;
+  status: string; // Status enum as string for display
+  updated: string; // Formatted timestamp
+  cancel: string; // For the cancel action column
+  jobInfo: JobInfo; // Full job data
+}
+
+// Results-related types
+export interface ExperimentResult {
+  job_id: string;
+  experiment_id: string;
+  agent_id: string;
+  status: JobStatusEnum;
+  started_at: string; // ISO timestamp
+  completed_at?: string; // ISO timestamp
+  duration_seconds?: number;
+  output?: any;
+  metrics: Record<string, any>;
+  model_actual?: string;
+  framework_version?: string;
+  hardware_info: Record<string, any>;
+  artifacts: string[];
+  error?: string;
+  error_type?: string;
+  traceback?: string;
+}
+
+export interface ExperimentResultTableRow {
+  experiment_id: string;
+  job_id: string;
+  agent_id: string;
+  status: string; // Status enum as string for display
+  export: string; // For the export action column
+  experimentResult: ExperimentResult; // Full experiment result data
+}
+
+export interface ListExperimentResultsResponse {
+  results: ExperimentResult[];
+}
+
+export interface GetExperimentResultResponse {
+  result: ExperimentResult;
 }

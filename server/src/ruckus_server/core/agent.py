@@ -6,8 +6,15 @@ from typing import Dict, Any
 
 from .config import AgentSettings, HttpClientSettings
 from .clients.http import HttpClient, ConnectionError, ServiceUnavailableError
-from ruckus_common.models import RegisteredAgentInfo
-from ruckus_common.models import AgentInfoResponse
+from ruckus_common.models import (
+    RegisteredAgentInfo,
+    AgentInfoResponse,
+    AgentStatus,
+    ExecuteJobRequest,
+    ExperimentSpec,
+    JobStatus,
+    JobStatusEnum,
+)
 
 
 class AgentProtocolUtility:
@@ -103,3 +110,176 @@ class AgentProtocolUtility:
         
         self.logger.debug(f"Created RegisteredAgentInfo for agent {registered_info.agent_id}")
         return registered_info
+    
+    async def get_agent_status(self, agent_base_url: str) -> AgentStatus:
+        """Get agent status from the agent's /status endpoint.
+        
+        Args:
+            agent_base_url: Base URL of the agent
+            
+        Returns:
+            AgentStatus object from the agent
+            
+        Raises:
+            ConnectionError: If unable to connect to agent
+            ServiceUnavailableError: If agent is temporarily unavailable
+        """
+        # Build the status URL
+        if not agent_base_url.endswith('/'):
+            agent_base_url += '/'
+        
+        status_url = urljoin(agent_base_url, "api/v1/status")
+        self.logger.debug(f"Getting agent status from {status_url}")
+        
+        async with HttpClient(self.http_client_settings) as client:
+            try:
+                response = await client.get(status_url)
+                agent_status = AgentStatus(**response)
+                self.logger.debug(f"Got agent status: {agent_status.status}")
+                return agent_status
+            except ServiceUnavailableError:
+                self.logger.warning(f"Agent at {status_url} is temporarily unavailable")
+                raise
+            except Exception as e:
+                self.logger.error(f"Unexpected error getting agent status from {status_url}: {str(e)}")
+                raise ConnectionError(f"Failed to get agent status: {str(e)}")
+    
+    async def execute_experiment(self, agent_base_url: str, experiment_spec: ExperimentSpec, job_id: str) -> Dict[str, Any]:
+        """Execute an experiment on an agent.
+        
+        Args:
+            agent_base_url: Base URL of the agent
+            experiment_spec: The experiment specification to execute
+            job_id: The job ID for this execution
+            
+        Returns:
+            Response from the agent's /jobs endpoint
+            
+        Raises:
+            ConnectionError: If unable to connect to agent
+            ServiceUnavailableError: If agent is temporarily unavailable
+        """
+        # Build the jobs URL (new endpoint)
+        if not agent_base_url.endswith('/'):
+            agent_base_url += '/'
+        
+        jobs_url = urljoin(agent_base_url, "api/v1/jobs")
+        self.logger.debug(f"Executing experiment on agent at {jobs_url}")
+        
+        # Create the ExecuteJobRequest
+        execute_request = ExecuteJobRequest(
+            experiment_spec=experiment_spec,
+            job_id=job_id
+        )
+        
+        async with HttpClient(self.http_client_settings) as client:
+            try:
+                # Use model_dump with serialization mode to handle datetime objects
+                request_data = execute_request.model_dump(mode='json')
+                response = await client.post(jobs_url, request_data)
+                self.logger.debug(f"Experiment execution initiated: {response}")
+                return response
+            except ServiceUnavailableError:
+                self.logger.warning(f"Agent at {jobs_url} is temporarily unavailable")
+                raise
+            except Exception as e:
+                self.logger.error(f"Unexpected error executing experiment on {jobs_url}: {str(e)}")
+                raise ConnectionError(f"Failed to execute experiment: {str(e)}")
+    
+    async def get_job_status(self, agent_base_url: str, job_id: str) -> JobStatus:
+        """Get job status from the agent's /status/{job_id} endpoint.
+        
+        Args:
+            agent_base_url: Base URL of the agent
+            job_id: The job ID to get status for
+            
+        Returns:
+            JobStatus object for the specified job
+            
+        Raises:
+            ConnectionError: If unable to connect to agent
+            ServiceUnavailableError: If agent is temporarily unavailable
+        """
+        # Build the job status URL
+        if not agent_base_url.endswith('/'):
+            agent_base_url += '/'
+        
+        status_url = urljoin(agent_base_url, f"api/v1/status/{job_id}")
+        self.logger.debug(f"Getting job status from {status_url}")
+        
+        async with HttpClient(self.http_client_settings) as client:
+            try:
+                response = await client.get(status_url)
+                # The response should have status, timestamp, and message
+                job_status = JobStatus(**response)
+                self.logger.debug(f"Got job status: {job_status.status}")
+                return job_status
+            except ServiceUnavailableError:
+                self.logger.warning(f"Agent at {status_url} is temporarily unavailable")
+                raise
+            except Exception as e:
+                self.logger.error(f"Unexpected error getting job status from {status_url}: {str(e)}")
+                raise ConnectionError(f"Failed to get job status: {str(e)}")
+    
+    async def get_experiment_results(self, agent_base_url: str, job_id: str) -> Dict[str, Any]:
+        """Get experiment results from the agent's /results/{job_id} endpoint.
+        
+        Args:
+            agent_base_url: Base URL of the agent
+            job_id: The job ID to get results for
+            
+        Returns:
+            Experiment results from the agent
+            
+        Raises:
+            ConnectionError: If unable to connect to agent
+            ServiceUnavailableError: If agent is temporarily unavailable
+        """
+        # Build the results URL
+        if not agent_base_url.endswith('/'):
+            agent_base_url += '/'
+        
+        results_url = urljoin(agent_base_url, f"api/v1/results/{job_id}")
+        self.logger.debug(f"Getting experiment results from {results_url}")
+        
+        async with HttpClient(self.http_client_settings) as client:
+            try:
+                response = await client.get(results_url)
+                self.logger.debug(f"Got experiment results for job {job_id}")
+                return response
+            except ServiceUnavailableError:
+                self.logger.warning(f"Agent at {results_url} is temporarily unavailable")
+                raise
+            except Exception as e:
+                self.logger.error(f"Unexpected error getting experiment results from {results_url}: {str(e)}")
+                raise ConnectionError(f"Failed to get experiment results: {str(e)}")
+    
+    async def cancel_experiment(self, agent_base_url: str, job_id: str) -> bool:
+        """Cancel an experiment running on an agent.
+        
+        Args:
+            agent_base_url: Base URL of the agent
+            job_id: The job ID to cancel
+            
+        Returns:
+            True if cancellation was successful (200 status), False otherwise
+            
+        Raises:
+            ConnectionError: If unable to connect to agent
+        """
+        # Build the cancel URL
+        if not agent_base_url.endswith('/'):
+            agent_base_url += '/'
+        
+        cancel_url = urljoin(agent_base_url, f"api/v1/jobs/{job_id}")
+        self.logger.debug(f"Cancelling job {job_id} at {cancel_url}")
+        
+        async with HttpClient(self.http_client_settings) as client:
+            try:
+                # DELETE request to cancel the job
+                await client.delete(cancel_url)
+                self.logger.info(f"Successfully cancelled job {job_id} on agent")
+                return True
+            except Exception as e:
+                self.logger.error(f"Failed to cancel job {job_id} on agent at {cancel_url}: {str(e)}")
+                return False

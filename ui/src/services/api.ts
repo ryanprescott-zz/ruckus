@@ -16,6 +16,11 @@ import type {
   DeleteExperimentResponse,
   ListExperimentsResponse,
   GetExperimentResponse,
+  ListJobsResponse,
+  CreateJobRequest,
+  CreateJobResponse,
+  ListExperimentResultsResponse,
+  GetExperimentResultResponse,
 } from '../types/api';
 
 // Configuration
@@ -115,6 +120,10 @@ export class RuckusApiClient {
     return this.request<ListAgentStatusResponse>('/agents/status');
   }
 
+  async getAgent(agentId: string): Promise<GetAgentInfoResponse> {
+    return this.request<GetAgentInfoResponse>(`/agents/${agentId}`);
+  }
+
   async getAgentStatus(agentId: string): Promise<GetAgentStatusResponse> {
     return this.request<GetAgentStatusResponse>(`/agents/${agentId}/status`);
   }
@@ -139,6 +148,33 @@ export class RuckusApiClient {
     return this.request<DeleteExperimentResponse>(`/experiments/${experimentId}`, {
       method: 'DELETE',
     });
+  }
+
+  // Job endpoints
+  async listJobs(): Promise<ListJobsResponse> {
+    return this.request<ListJobsResponse>('/jobs');
+  }
+
+  async createJob(request: CreateJobRequest): Promise<CreateJobResponse> {
+    return this.request<CreateJobResponse>('/jobs', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async cancelJob(jobId: string): Promise<void> {
+    return this.request<void>(`/jobs/${jobId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Results endpoints
+  async listExperimentResults(): Promise<ListExperimentResultsResponse> {
+    return this.request<ListExperimentResultsResponse>('/results');
+  }
+
+  async getExperimentResult(jobId: string): Promise<GetExperimentResultResponse> {
+    return this.request<GetExperimentResultResponse>(`/results/${jobId}`);
   }
 }
 

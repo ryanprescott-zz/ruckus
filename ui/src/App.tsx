@@ -2,6 +2,8 @@ import { useState } from 'react'
 import './App.css'
 import AgentsTab from './components/AgentsTab'
 import ExperimentsTab from './components/ExperimentsTab'
+import JobsTab from './components/JobsTab'
+import ResultsTab from './components/ResultsTab'
 import SettingsMenu from './components/SettingsMenu'
 import { ThemeProvider } from './contexts/ThemeContext'
 
@@ -22,9 +24,9 @@ function App() {
       case 'experiments':
         return <ExperimentsTab />
       case 'jobs':
-        return <div className="tab-placeholder">Jobs tab coming soon</div>
+        return <JobsTab />
       case 'results':
-        return <div className="tab-placeholder">Results tab coming soon</div>
+        return <ResultsTab />
       default:
         return <div className="tab-placeholder">Tab not found</div>
     }

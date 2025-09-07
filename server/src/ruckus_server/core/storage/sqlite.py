@@ -28,6 +28,13 @@ class SQLiteStorageBackend(StorageBackend):
         self.logger = logging.getLogger(__name__)
         self.engine = None
         self.session_factory = None
+        
+        # In-memory job storage (temporary implementation)
+        self._running_jobs = {}  # agent_id -> JobInfo
+        self._queued_jobs = {}   # agent_id -> List[JobInfo]
+        self._completed_jobs = {} # agent_id -> List[JobInfo]
+        self._failed_jobs = {}   # agent_id -> List[JobInfo]
+        self._experiment_results = {} # experiment_id -> results
     
     async def initialize(self) -> None:
         """Initialize the SQLite storage backend."""
@@ -380,4 +387,88 @@ class SQLiteStorageBackend(StorageBackend):
         except Exception as e:
             self.logger.error(f"Failed to delete experiment {experiment_id}: {e}")
             raise
+    
+    async def get_agent(self, agent_id: str):
+        """Get agent by ID."""
+        return await self.get_registered_agent_info(agent_id)
+    
+    # Job management methods (in-memory implementation)
+    async def get_running_job(self, agent_id: str):
+        """Get the currently running job for an agent."""
+        return self._running_jobs.get(agent_id)
+    
+    async def set_running_job(self, agent_id: str, job_info):
+        """Set the running job for an agent."""
+        self._running_jobs[agent_id] = job_info
+    
+    async def clear_running_job(self, agent_id: str):
+        """Clear the running job for an agent."""
+        if agent_id in self._running_jobs:
+            del self._running_jobs[agent_id]
+    
+    async def update_running_job(self, agent_id: str, job_info):
+        """Update the running job for an agent."""
+        if agent_id in self._running_jobs:
+            self._running_jobs[agent_id] = job_info
+    
+    async def get_queued_jobs(self, agent_id: str):
+        """Get queued jobs for an agent."""
+        return self._queued_jobs.get(agent_id, [])
+    
+    async def add_queued_job(self, agent_id: str, job_info):
+        """Add a job to the queue for an agent."""
+        if agent_id not in self._queued_jobs:
+            self._queued_jobs[agent_id] = []
+        self._queued_jobs[agent_id].append(job_info)
+    
+    async def remove_queued_job(self, agent_id: str, job_id: str):
+        """Remove a job from the queue for an agent."""
+        if agent_id in self._queued_jobs:
+            self._queued_jobs[agent_id] = [
+                job for job in self._queued_jobs[agent_id] 
+                if job.job_id != job_id
+            ]
+    
+    async def get_completed_jobs(self, agent_id: str):
+        """Get completed jobs for an agent."""
+        return self._completed_jobs.get(agent_id, [])
+    
+    async def add_completed_job(self, agent_id: str, job_info):
+        """Add a job to the completed jobs for an agent."""
+        if agent_id not in self._completed_jobs:
+            self._completed_jobs[agent_id] = []
+        self._completed_jobs[agent_id].append(job_info)
+    
+    async def get_failed_jobs(self, agent_id: str):
+        """Get failed jobs for an agent."""
+        return self._failed_jobs.get(agent_id, [])
+    
+    async def add_failed_job(self, agent_id: str, job_info):
+        """Add a job to the failed jobs for an agent."""
+        if agent_id not in self._failed_jobs:
+            self._failed_jobs[agent_id] = []
+        self._failed_jobs[agent_id].append(job_info)
+    
+    async def save_experiment_results(self, experiment_id: str, results):
+        """Save experiment results."""
+        self._experiment_results[experiment_id] = results
+
+    async def store_experiment_result(self, experiment_result):
+        """Store an ExperimentResult object."""
+        # Store by job_id for easy lookup
+        if not hasattr(self, '_experiment_result_objects'):
+            self._experiment_result_objects = {}
+        self._experiment_result_objects[experiment_result.job_id] = experiment_result
+
+    async def get_experiment_result_by_job_id(self, job_id: str):
+        """Get ExperimentResult by job ID."""
+        if not hasattr(self, '_experiment_result_objects'):
+            self._experiment_result_objects = {}
+        return self._experiment_result_objects.get(job_id)
+
+    async def list_experiment_results(self):
+        """Get all stored experiment results."""
+        if not hasattr(self, '_experiment_result_objects'):
+            self._experiment_result_objects = {}
+        return list(self._experiment_result_objects.values())
     

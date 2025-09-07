@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from ruckus_common.models import (
     JobRequest, JobUpdate, JobResult, AgentType,
     AgentInfoResponse, AgentInfo, AgentStatus, ExecuteJobRequest,
-    JobStatus
+    JobStatusEnum
 )
 
 router = APIRouter()
@@ -115,7 +115,7 @@ async def get_job_status(job_id: str, request: Request):
         job_info = agent.running_jobs[job_id]
         return {
             "job_id": job_id,
-            "status": JobStatus.RUNNING,
+            "status": JobStatusEnum.RUNNING,
             "started_at": job_info.get("start_time"),
             "message": "Job is currently running"
         }
@@ -124,20 +124,20 @@ async def get_job_status(job_id: str, request: Request):
     if job_id in agent.queued_job_ids:
         return {
             "job_id": job_id,
-            "status": JobStatus.QUEUED,
+            "status": JobStatusEnum.QUEUED,
             "message": "Job is queued for execution"
         }
     
     # Check if job result is cached
     result = agent.result_cache.get(job_id)
     if result:
-        status = JobStatus.COMPLETED
+        status = JobStatusEnum.COMPLETED
         if result.get("status") == "failed":
-            status = JobStatus.FAILED
+            status = JobStatusEnum.FAILED
         elif result.get("status") == "cancelled":
-            status = JobStatus.CANCELLED
+            status = JobStatusEnum.CANCELLED
         elif result.get("status") == "timeout":
-            status = JobStatus.TIMEOUT
+            status = JobStatusEnum.TIMEOUT
             
         return {
             "job_id": job_id,

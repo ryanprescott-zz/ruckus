@@ -37,7 +37,7 @@
 .agent-registration label {
   font-weight: 600;
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.025em;
   min-width: fit-content;
@@ -46,10 +46,10 @@
 
 .agent-registration input {
   flex: 1;
-  padding: 0.75rem 1rem;
-  border: 2px solid var(--border-primary);
-  border-radius: 12px;
-  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  font-size: 0.8125rem;
   background: var(--bg-secondary);
   backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -98,20 +98,20 @@
 }
 
 .register-button {
-  padding: 0.75rem 1.5rem;
+  padding: 0.5rem 1rem;
   background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.025em;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 
-    0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    0 2px 4px -1px rgba(0, 0, 0, 0.1),
+    0 1px 2px -1px rgba(0, 0, 0, 0.06);
   position: relative;
   overflow: hidden;
 }
@@ -173,8 +173,8 @@
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  min-height: 180px;
-  max-height: 25vh; /* Limit detail section height */
+  min-height: 280px;
+  max-height: 40vh; /* Increased from 25vh to provide more space */
   box-shadow: var(--shadow-secondary);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -193,8 +193,8 @@
 
 .agent-details-section h3 {
   margin: 0 0 1rem 0;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 0.875rem;
+  font-weight: 600;
   color: var(--text-primary);
   padding-bottom: 0.75rem;
   border-bottom: 2px solid rgba(59, 130, 246, 0.1);
@@ -223,11 +223,12 @@
   flex: 1;
   width: 100%;
   min-height: 180px;
+  max-height: calc(40vh - 4rem); /* Subtract header and padding */
   padding: 1rem;
   border: 2px solid var(--border-secondary);
   border-radius: 12px;
   font-family: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   line-height: 1.6;
   background: var(--bg-secondary);
   backdrop-filter: blur(10px);
@@ -235,6 +236,7 @@
   box-sizing: border-box;
   color: var(--text-primary);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
 }
 
 .agent-details-section textarea::selection {

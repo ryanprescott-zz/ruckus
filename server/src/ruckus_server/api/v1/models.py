@@ -5,8 +5,9 @@ from urllib.parse import urlparse
 import re
 
 from datetime import datetime
-from typing import List
-from ruckus_common.models import RegisteredAgentInfo, AgentStatus, ExperimentSpec
+from typing import List, Dict, Optional, Any
+from ruckus_common.models import RegisteredAgentInfo, AgentStatus, ExperimentSpec, JobResult, JobStatusEnum
+from ...core.models import JobInfo
 
 
 class RegisterAgentRequest(BaseModel):
@@ -134,3 +135,88 @@ class GetExperimentResponse(BaseModel):
     """Response model for getting a specific experiment."""
     
     experiment: ExperimentSpec = Field(..., description="Complete ExperimentSpec of the requested experiment")
+
+
+# Job-related models
+class CreateJobRequest(BaseModel):
+    """Request model for creating a new job."""
+    
+    experiment_id: str = Field(..., description="ID of the experiment to run")
+    agent_id: str = Field(..., description="ID of the agent to run the job on")
+
+
+class CreateJobResponse(BaseModel):
+    """Response model for job creation."""
+    
+    job_id: str = Field(..., description="ID of the created job")
+
+
+class ListJobsResponse(BaseModel):
+    """Response model for listing jobs grouped by agent."""
+    
+    jobs: Dict[str, List[JobInfo]] = Field(..., description="Dictionary of JobInfo lists keyed by agent_id, sorted by timestamp (newest first)")
+
+
+# Results-related models
+class ExperimentResult(BaseModel):
+    """Enhanced result combining JobResult with additional display fields."""
+    
+    # Core identification fields for the UI
+    job_id: str = Field(..., description="ID of the job")
+    experiment_id: str = Field(..., description="ID of the experiment")
+    agent_id: str = Field(..., description="ID of the agent that executed the job")
+    status: JobStatusEnum = Field(..., description="Current job status")
+    
+    # Timing information
+    started_at: datetime = Field(..., description="When the job started")
+    completed_at: Optional[datetime] = Field(None, description="When the job completed")
+    duration_seconds: Optional[float] = Field(None, description="Duration of job execution")
+    
+    # Results data from JobResult
+    output: Optional[Any] = Field(None, description="Job output data")
+    metrics: Dict[str, Any] = Field(default_factory=dict, description="Performance metrics")
+    
+    # Metadata
+    model_actual: Optional[str] = Field(None, description="Actual model used")
+    framework_version: Optional[str] = Field(None, description="Framework version used")
+    hardware_info: Dict[str, Any] = Field(default_factory=dict, description="Hardware information")
+    artifacts: List[str] = Field(default_factory=list, description="Generated artifacts")
+    
+    # Error information
+    error: Optional[str] = Field(None, description="Error message if failed")
+    error_type: Optional[str] = Field(None, description="Type of error")
+    traceback: Optional[str] = Field(None, description="Error traceback")
+    
+    @classmethod
+    def from_job_result(cls, job_result: JobResult, agent_id: str) -> "ExperimentResult":
+        """Create ExperimentResult from JobResult and agent_id."""
+        return cls(
+            job_id=job_result.job_id,
+            experiment_id=job_result.experiment_id,
+            agent_id=agent_id,
+            status=job_result.status,
+            started_at=job_result.started_at,
+            completed_at=job_result.completed_at,
+            duration_seconds=job_result.duration_seconds,
+            output=job_result.output,
+            metrics=job_result.metrics,
+            model_actual=job_result.model_actual,
+            framework_version=job_result.framework_version,
+            hardware_info=job_result.hardware_info,
+            artifacts=job_result.artifacts,
+            error=job_result.error,
+            error_type=job_result.error_type,
+            traceback=job_result.traceback,
+        )
+
+
+class ListExperimentResultsResponse(BaseModel):
+    """Response model for listing experiment results."""
+    
+    results: List[ExperimentResult] = Field(..., description="List of completed experiment results")
+
+
+class GetExperimentResultResponse(BaseModel):
+    """Response model for getting a specific experiment result by job_id."""
+    
+    result: ExperimentResult = Field(..., description="Experiment result for the specified job")

@@ -199,6 +199,29 @@ class ExperimentManagerSettings(BaseSettings):
         case_sensitive = False
 
 
+class JobManagerSettings(BaseSettings):
+    """Job manager configuration settings."""
+    
+    # Job status polling interval in seconds
+    job_status_polling_interval: float = Field(
+        default=5.0,
+        description="Interval in seconds for polling job status from agents"
+    )
+    
+    # Logging configuration
+    log_level: str = Field(default="INFO", description="Logging level")
+    
+    # Component settings
+    storage: StorageSettings = Field(default_factory=StorageSettings)
+    agent: AgentSettings = Field(default_factory=AgentSettings)
+    http_client: HttpClientSettings = Field(default_factory=HttpClientSettings)
+    
+    class Config:
+        env_prefix = "RUCKUS_JOB_MANAGER_"
+        env_file = ".env"
+        case_sensitive = False
+
+
 class Settings(BaseSettings):
     """Main server settings that combines all configuration sections."""
     
@@ -206,6 +229,7 @@ class Settings(BaseSettings):
     app: AppSettings = Field(default_factory=AppSettings)
     agent_manager: AgentManagerSettings = Field(default_factory=AgentManagerSettings)
     experiment_manager: ExperimentManagerSettings = Field(default_factory=ExperimentManagerSettings)
+    job_manager: JobManagerSettings = Field(default_factory=JobManagerSettings)
     postgresql: PostgreSQLSettings = Field(default_factory=PostgreSQLSettings)
     sqlite: SQLiteSettings = Field(default_factory=SQLiteSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)

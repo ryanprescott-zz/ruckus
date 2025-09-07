@@ -9,8 +9,19 @@ from ruckus_common.models import (
     AgentType,
     AgentInfo,
     RegisteredAgentInfo,
+    JobStatus,
+    JobStatusEnum,
 )
 
+
+
+class JobInfo(BaseModel):
+    """Information about a job."""
+    job_id: str
+    experiment_id: str
+    agent_id: str
+    created_time: datetime = Field(default_factory=datetime.utcnow)
+    status: JobStatus
 
 
 class ExperimentStatus(BaseModel):

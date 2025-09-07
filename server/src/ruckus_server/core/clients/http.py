@@ -142,3 +142,115 @@ class HttpClient:
             raise HttpClientError(f"Request failed: {str(last_exception)}")
         else:
             raise HttpClientError("Request failed for unknown reason")
+    
+    async def get(self, url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Make a simple GET request without retry logic.
+        
+        Args:
+            url: The URL to request
+            headers: Optional HTTP headers
+            
+        Returns:
+            JSON response as dictionary
+            
+        Raises:
+            ConnectionError: If connection cannot be established
+            HttpClientError: For HTTP errors
+        """
+        if not self._client:
+            raise RuntimeError("HttpClient must be used as async context manager")
+        
+        try:
+            self.logger.debug(f"Making GET request to {url}")
+            response = await self._client.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                self.logger.debug(f"GET {url} successful")
+                return response.json()
+            else:
+                self.logger.error(f"GET {url} failed with status {response.status_code}")
+                raise HttpClientError(f"HTTP {response.status_code}: {response.text}")
+                
+        except httpx.ConnectError as e:
+            self.logger.error(f"Connection error for GET {url}: {str(e)}")
+            raise ConnectionError(f"Cannot connect to {url}: {str(e)}")
+        except httpx.TimeoutException as e:
+            self.logger.error(f"Timeout for GET {url}: {str(e)}")
+            raise ServiceUnavailableError(f"Request timeout: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error for GET {url}: {str(e)}")
+            raise HttpClientError(f"Unexpected error: {str(e)}")
+    
+    async def post(self, url: str, data: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Make a POST request.
+        
+        Args:
+            url: The URL to request
+            data: Optional data to send as JSON
+            headers: Optional HTTP headers
+            
+        Returns:
+            JSON response as dictionary
+            
+        Raises:
+            ConnectionError: If connection cannot be established
+            HttpClientError: For HTTP errors
+        """
+        if not self._client:
+            raise RuntimeError("HttpClient must be used as async context manager")
+        
+        try:
+            self.logger.debug(f"Making POST request to {url}")
+            response = await self._client.post(url, json=data, headers=headers)
+            
+            if response.status_code in [200, 201]:
+                self.logger.debug(f"POST {url} successful")
+                return response.json()
+            else:
+                self.logger.error(f"POST {url} failed with status {response.status_code}")
+                raise HttpClientError(f"HTTP {response.status_code}: {response.text}")
+                
+        except httpx.ConnectError as e:
+            self.logger.error(f"Connection error for POST {url}: {str(e)}")
+            raise ConnectionError(f"Cannot connect to {url}: {str(e)}")
+        except httpx.TimeoutException as e:
+            self.logger.error(f"Timeout for POST {url}: {str(e)}")
+            raise ServiceUnavailableError(f"Request timeout: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error for POST {url}: {str(e)}")
+            raise HttpClientError(f"Unexpected error: {str(e)}")
+    
+    async def delete(self, url: str, headers: Optional[Dict[str, str]] = None) -> None:
+        """Make a DELETE request.
+        
+        Args:
+            url: The URL to request
+            headers: Optional HTTP headers
+            
+        Raises:
+            ConnectionError: If connection cannot be established
+            HttpClientError: For HTTP errors
+        """
+        if not self._client:
+            raise RuntimeError("HttpClient must be used as async context manager")
+        
+        try:
+            self.logger.debug(f"Making DELETE request to {url}")
+            response = await self._client.delete(url, headers=headers)
+            
+            if response.status_code in [200, 204]:
+                self.logger.debug(f"DELETE {url} successful")
+                return
+            else:
+                self.logger.error(f"DELETE {url} failed with status {response.status_code}")
+                raise HttpClientError(f"HTTP {response.status_code}: {response.text}")
+                
+        except httpx.ConnectError as e:
+            self.logger.error(f"Connection error for DELETE {url}: {str(e)}")
+            raise ConnectionError(f"Cannot connect to {url}: {str(e)}")
+        except httpx.TimeoutException as e:
+            self.logger.error(f"Timeout for DELETE {url}: {str(e)}")
+            raise ServiceUnavailableError(f"Request timeout: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error for DELETE {url}: {str(e)}")
+            raise HttpClientError(f"Unexpected error: {str(e)}")

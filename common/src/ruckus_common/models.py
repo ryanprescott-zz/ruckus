@@ -15,7 +15,7 @@ class AgentType(str, Enum):
     BLACK_BOX = "black_box"  # External API only
 
 
-class JobStatus(str, Enum):
+class JobStatusEnum(str, Enum):
     """Job execution status."""
     QUEUED = "queued"
     ASSIGNED = "assigned"
@@ -35,6 +35,13 @@ class JobStage(str, Enum):
     RUNNING_INFERENCE = "running_inference"
     COLLECTING_METRICS = "collecting_metrics"
     FINALIZING = "finalizing"
+
+
+class JobStatus(BaseModel):
+    """Job status with timestamp and message."""
+    status: JobStatusEnum
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    message: str = ""
 
 
 class MetricType(str, Enum):
@@ -347,27 +354,6 @@ class ExperimentExecution(TimestampedModel):
 
 
 # Job Models
-class JobSpec(TimestampedModel):
-    """Specification for a single job."""
-    job_id: str
-    experiment_id: str
-    agent_id: Optional[str] = None
-    model: str
-    framework: str
-    hardware_target: str
-    task_type: TaskType
-    task_config: Dict[str, Any] = Field(default_factory=dict)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    timeout_seconds: int = Field(default=3600, gt=0)
-    max_retries: int = Field(default=3, ge=0)
-    priority: int = Field(default=0, ge=0, le=10)
-    runs_per_job: int = Field(default=1, ge=1, description="Number of runs to execute sequentially for statistical reliability")
-    status: JobStatus = JobStatus.QUEUED
-    retry_count: int = Field(default=0, ge=0)
-    
-    # Results (populated when job completes)
-    results: Optional[Dict[str, Any]] = Field(default=None, description="Job execution results and metrics")
-
 
 class JobRequest(BaseModel):
     """Request to execute a job (server -> agent)."""
@@ -394,7 +380,7 @@ class ExecuteJobRequest(BaseModel):
 class JobUpdate(BaseModel):
     """Progress update for a running job (agent -> server)."""
     job_id: str
-    status: JobStatus
+    status: JobStatusEnum
     stage: Optional[JobStage] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
     message: Optional[str] = None
@@ -407,7 +393,7 @@ class JobResult(BaseModel):
     """Final result of a completed job (agent -> server)."""
     job_id: str
     experiment_id: str
-    status: JobStatus
+    status: JobStatusEnum
     started_at: datetime
     completed_at: datetime
     duration_seconds: float

@@ -143,6 +143,18 @@ class StorageBackend(ABC):
         pass
     
     @abstractmethod
+    async def get_agent(self, agent_id: str):
+        """Get agent by ID.
+        
+        Args:
+            agent_id: ID of the agent to retrieve
+            
+        Returns:
+            RegisteredAgentInfo object or None if not found
+        """
+        pass
+    
+    @abstractmethod
     async def remove_agent(self, agent_id: str) -> bool:
         """Remove an agent."""
         pass
@@ -204,6 +216,164 @@ class StorageBackend(ABC):
             
         Raises:
             ExperimentNotFoundException: If experiment with given ID doesn't exist
+        """
+        pass
+    
+    # Job management
+    @abstractmethod
+    async def get_running_job(self, agent_id: str):
+        """Get the currently running job for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            
+        Returns:
+            JobInfo object or None if no running job
+        """
+        pass
+    
+    @abstractmethod
+    async def set_running_job(self, agent_id: str, job_info):
+        """Set the running job for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            job_info: JobInfo object
+        """
+        pass
+    
+    @abstractmethod
+    async def clear_running_job(self, agent_id: str):
+        """Clear the running job for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+        """
+        pass
+    
+    @abstractmethod
+    async def update_running_job(self, agent_id: str, job_info):
+        """Update the running job for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            job_info: JobInfo object
+        """
+        pass
+    
+    @abstractmethod
+    async def get_queued_jobs(self, agent_id: str):
+        """Get queued jobs for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            
+        Returns:
+            List of JobInfo objects
+        """
+        pass
+    
+    @abstractmethod
+    async def add_queued_job(self, agent_id: str, job_info):
+        """Add a job to the queue for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            job_info: JobInfo object
+        """
+        pass
+    
+    @abstractmethod
+    async def remove_queued_job(self, agent_id: str, job_id: str):
+        """Remove a job from the queue for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            job_id: ID of the job to remove
+        """
+        pass
+    
+    @abstractmethod
+    async def get_completed_jobs(self, agent_id: str):
+        """Get completed jobs for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            
+        Returns:
+            List of JobInfo objects
+        """
+        pass
+    
+    @abstractmethod
+    async def add_completed_job(self, agent_id: str, job_info):
+        """Add a job to the completed jobs for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            job_info: JobInfo object
+        """
+        pass
+    
+    @abstractmethod
+    async def get_failed_jobs(self, agent_id: str):
+        """Get failed jobs for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            
+        Returns:
+            List of JobInfo objects
+        """
+        pass
+    
+    @abstractmethod
+    async def add_failed_job(self, agent_id: str, job_info):
+        """Add a job to the failed jobs for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            job_info: JobInfo object
+        """
+        pass
+    
+    @abstractmethod
+    async def save_experiment_results(self, experiment_id: str, results: Dict[str, Any]):
+        """Save experiment results.
+        
+        Args:
+            experiment_id: ID of the experiment
+            results: Results dictionary
+        """
+        pass
+
+    @abstractmethod
+    async def store_experiment_result(self, experiment_result):
+        """Store an ExperimentResult object.
+        
+        Args:
+            experiment_result: ExperimentResult object to store
+        """
+        pass
+
+    @abstractmethod
+    async def get_experiment_result_by_job_id(self, job_id: str):
+        """Get ExperimentResult by job ID.
+        
+        Args:
+            job_id: Job ID to get result for
+            
+        Returns:
+            ExperimentResult object or None if not found
+        """
+        pass
+
+    @abstractmethod
+    async def list_experiment_results(self):
+        """Get all stored experiment results.
+        
+        Returns:
+            List of ExperimentResult objects
         """
         pass
     

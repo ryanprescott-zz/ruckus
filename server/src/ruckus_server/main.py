@@ -18,6 +18,7 @@ from .api.v1.api import api_router
 from .core.config import Settings
 from .core.agent_manager import AgentManager
 from .core.experiment_manager import ExperimentManager
+from .core.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,22 @@ async def lifespan(app: FastAPI):
     experiment_manager = ExperimentManager(settings.experiment_manager)
     await experiment_manager.start()
     
+    # Initialize JobManager with settings
+    # JobManager needs the same storage as experiment_manager
+    job_manager = JobManager(settings.job_manager, experiment_manager.storage_backend)
+    await job_manager.start()
+    
     # Make managers available to the app
     app.state.agent_manager = agent_manager
     app.state.experiment_manager = experiment_manager
+    app.state.job_manager = job_manager
     
     yield
     
     # Shutdown
     logger.info("Shutting down RUCKUS Server")
+    if hasattr(app.state, 'job_manager') and app.state.job_manager:
+        await app.state.job_manager.stop()
     if hasattr(app.state, 'agent_manager') and app.state.agent_manager:
         await app.state.agent_manager.stop()
     if hasattr(app.state, 'experiment_manager') and app.state.experiment_manager:
