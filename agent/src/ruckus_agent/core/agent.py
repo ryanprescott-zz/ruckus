@@ -87,12 +87,19 @@ class Agent:
             detected = await detector.detect_all()
             
             # Convert Pydantic models to dict for storage (legacy format)
+            # Convert models list to dictionary format for UI consumption
+            models_dict = {}
+            if detected.models:
+                for model in detected.models:
+                    if isinstance(model, dict) and 'name' in model:
+                        models_dict[model['name']] = model
+                    
             system_info = {
                 "system": detected.system.dict() if detected.system else {},
                 "cpu": detected.cpu.dict() if detected.cpu else {},
                 "gpus": [gpu.dict() for gpu in detected.gpus] if detected.gpus else [],
                 "frameworks": [fw.dict() for fw in detected.frameworks] if detected.frameworks else [],
-                "models": detected.models,  # Already in dict format
+                "models": models_dict,  # Convert to dict with model names as keys
                 "hooks": [hook.dict() for hook in detected.hooks] if detected.hooks else [],
                 "metrics": [metric.dict() for metric in detected.metrics] if detected.metrics else []
             }

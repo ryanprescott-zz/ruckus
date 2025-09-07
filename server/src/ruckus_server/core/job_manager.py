@@ -370,10 +370,17 @@ class JobManager:
             
             # Get results from agent
             try:
-                job_result: JobResult = await self.agent_utility.get_experiment_results(
+                # Get raw results from agent (returns dict)
+                raw_results = await self.agent_utility.get_experiment_results(
                     agent_info.agent_url,
                     job_id
                 )
+                
+                # Convert dict to JobResult object, or use existing JobResult
+                if isinstance(raw_results, JobResult):
+                    job_result = raw_results
+                else:
+                    job_result = JobResult(**raw_results)
                 
                 # Create ExperimentResult from JobResult
                 experiment_result = ExperimentResult.from_job_result(job_result, agent_id)

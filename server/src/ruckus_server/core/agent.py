@@ -229,7 +229,7 @@ class AgentProtocolUtility:
             job_id: The job ID to get results for
             
         Returns:
-            Experiment results from the agent
+            Experiment results dictionary from the agent (to be converted to JobResult)
             
         Raises:
             ConnectionError: If unable to connect to agent
