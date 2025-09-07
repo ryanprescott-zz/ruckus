@@ -67,6 +67,21 @@ class Experiment(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
+class Job(Base):
+    """Job database model."""
+    __tablename__ = "jobs"
+    
+    job_id = Column(String, primary_key=True)
+    experiment_id = Column(String, nullable=False)
+    agent_id = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # "queued", "assigned", "running", "completed", "failed", "cancelled"
+    status_message = Column(Text)
+    created_time = Column(DateTime, default=func.now())
+    started_time = Column(DateTime, nullable=True)
+    completed_time = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
 
 class StorageBackend(ABC):
     """Abstract base class for storage backends."""

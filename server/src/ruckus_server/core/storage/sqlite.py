@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-from .base import StorageBackend, Base, Agent, Experiment, ExperimentAlreadyExistsException, ExperimentNotFoundException
+from .base import StorageBackend, Base, Agent, Experiment, Job, ExperimentAlreadyExistsException, ExperimentNotFoundException
 from ..config import SQLiteSettings
-from ruckus_common.models import AgentInfo, AgentType, RegisteredAgentInfo, ExperimentSpec
+from ruckus_common.models import AgentInfo, AgentType, RegisteredAgentInfo, ExperimentSpec, JobStatusEnum
 
 
 class SQLiteStorageBackend(StorageBackend):
@@ -29,11 +29,7 @@ class SQLiteStorageBackend(StorageBackend):
         self.engine = None
         self.session_factory = None
         
-        # In-memory job storage (temporary implementation)
-        self._running_jobs = {}  # agent_id -> JobInfo
-        self._queued_jobs = {}   # agent_id -> List[JobInfo]
-        self._completed_jobs = {} # agent_id -> List[JobInfo]
-        self._failed_jobs = {}   # agent_id -> List[JobInfo]
+        # In-memory storage for experiment results (keeping this for now)
         self._experiment_results = {} # experiment_id -> results
     
     async def initialize(self) -> None:
@@ -392,62 +388,234 @@ class SQLiteStorageBackend(StorageBackend):
         """Get agent by ID."""
         return await self.get_registered_agent_info(agent_id)
     
-    # Job management methods (in-memory implementation)
+    # Helper methods for JobInfo conversion
+    def _job_to_job_info(self, job: Job):
+        """Convert a SQLAlchemy Job object to JobInfo."""
+        from ..models import JobInfo
+        from ruckus_common.models import JobStatus, JobStatusEnum
+        
+        return JobInfo(
+            job_id=job.job_id,
+            experiment_id=job.experiment_id,
+            agent_id=job.agent_id,
+            created_time=job.created_time,
+            status=JobStatus(
+                status=JobStatusEnum(job.status),
+                message=job.status_message or ""
+            )
+        )
+    
+    def _job_info_to_job(self, job_info) -> Job:
+        """Convert a JobInfo object to SQLAlchemy Job."""
+        return Job(
+            job_id=job_info.job_id,
+            experiment_id=job_info.experiment_id,
+            agent_id=job_info.agent_id,
+            status=job_info.status.status.value,
+            status_message=job_info.status.message,
+            created_time=job_info.created_time
+        )
+    
+    async def _upsert_job(self, job_info):
+        """Insert or update a job in the database."""
+        async def _upsert():
+            async with self.session_factory() as session:
+                # Check if job exists
+                stmt = select(Job).where(Job.job_id == job_info.job_id)
+                result = await session.execute(stmt)
+                existing_job = result.scalar_one_or_none()
+                
+                if existing_job:
+                    # Update existing job
+                    existing_job.status = job_info.status.status.value
+                    existing_job.status_message = job_info.status.message
+                    existing_job.updated_at = datetime.now(timezone.utc)
+                    if job_info.status.status.value == "running" and not existing_job.started_time:
+                        existing_job.started_time = datetime.now(timezone.utc)
+                    # Don't set completed_time automatically - let clear_running_job handle that
+                else:
+                    # Create new job
+                    job = self._job_info_to_job(job_info)
+                    session.add(job)
+                
+                await session.commit()
+        
+        try:
+            await self._retry_operation(_upsert)
+        except Exception as e:
+            self.logger.error(f"Failed to upsert job {job_info.job_id}: {e}")
+            raise
+    
+    # Job management methods (database implementation)
     async def get_running_job(self, agent_id: str):
         """Get the currently running job for an agent."""
-        return self._running_jobs.get(agent_id)
+        async def _get():
+            async with self.session_factory() as session:
+                # Get the most recent job that is actively running or assigned
+                stmt = select(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.status.in_(["running", "assigned"])
+                ).order_by(Job.updated_at.desc()).limit(1)
+                result = await session.execute(stmt)
+                job = result.scalar_one_or_none()
+                
+                if job:
+                    return self._job_to_job_info(job)
+                
+                # If no active job, check if there's a recently completed/failed job 
+                # that hasn't been "cleared" yet (no completed_time means it's still the "current" job)
+                stmt = select(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.status.in_(["completed", "failed"]),
+                    Job.completed_time.is_(None)
+                ).order_by(Job.updated_at.desc()).limit(1)
+                result = await session.execute(stmt)
+                job = result.scalar_one_or_none()
+                
+                return self._job_to_job_info(job) if job else None
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get running job for agent {agent_id}: {e}")
+            return None
     
     async def set_running_job(self, agent_id: str, job_info):
         """Set the running job for an agent."""
-        self._running_jobs[agent_id] = job_info
+        # Update job status to running and ensure agent_id matches
+        job_info_copy = job_info.model_copy()
+        job_info_copy.agent_id = agent_id
+        job_info_copy.status.status = JobStatusEnum.RUNNING
+        await self._upsert_job(job_info_copy)
     
     async def clear_running_job(self, agent_id: str):
         """Clear the running job for an agent."""
-        if agent_id in self._running_jobs:
-            del self._running_jobs[agent_id]
+        async def _clear():
+            async with self.session_factory() as session:
+                # Find the current running job (most recent non-queued job)
+                stmt = select(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.status.in_(["running", "assigned", "completed", "failed"])
+                ).order_by(Job.updated_at.desc()).limit(1)
+                result = await session.execute(stmt)
+                job = result.scalar_one_or_none()
+                
+                if job:
+                    # Mark it as completed if it wasn't already
+                    if job.status not in ["completed", "failed", "cancelled"]:
+                        job.status = "completed"
+                    if not job.completed_time:
+                        job.completed_time = datetime.now(timezone.utc)
+                    job.updated_at = datetime.now(timezone.utc)
+                    
+                    await session.commit()
+        
+        try:
+            await self._retry_operation(_clear)
+        except Exception as e:
+            self.logger.error(f"Failed to clear running job for agent {agent_id}: {e}")
     
     async def update_running_job(self, agent_id: str, job_info):
         """Update the running job for an agent."""
-        if agent_id in self._running_jobs:
-            self._running_jobs[agent_id] = job_info
+        # Simply update the job in place - don't move it to other categories yet
+        await self._upsert_job(job_info)
     
     async def get_queued_jobs(self, agent_id: str):
         """Get queued jobs for an agent."""
-        return self._queued_jobs.get(agent_id, [])
+        async def _get():
+            async with self.session_factory() as session:
+                stmt = select(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.status.in_(["queued", "assigned"])
+                ).order_by(Job.created_time)
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+                return [self._job_to_job_info(job) for job in jobs]
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get queued jobs for agent {agent_id}: {e}")
+            return []
     
     async def add_queued_job(self, agent_id: str, job_info):
         """Add a job to the queue for an agent."""
-        if agent_id not in self._queued_jobs:
-            self._queued_jobs[agent_id] = []
-        self._queued_jobs[agent_id].append(job_info)
+        # Set status to queued and ensure agent_id matches
+        job_info_copy = job_info.model_copy()
+        job_info_copy.agent_id = agent_id
+        job_info_copy.status.status = JobStatusEnum.QUEUED
+        await self._upsert_job(job_info_copy)
     
     async def remove_queued_job(self, agent_id: str, job_id: str):
         """Remove a job from the queue for an agent."""
-        if agent_id in self._queued_jobs:
-            self._queued_jobs[agent_id] = [
-                job for job in self._queued_jobs[agent_id] 
-                if job.job_id != job_id
-            ]
+        async def _remove():
+            async with self.session_factory() as session:
+                stmt = delete(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.job_id == job_id,
+                    Job.status.in_(["queued", "assigned"])
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        
+        try:
+            return await self._retry_operation(_remove)
+        except Exception as e:
+            self.logger.error(f"Failed to remove queued job {job_id} for agent {agent_id}: {e}")
+            return False
     
     async def get_completed_jobs(self, agent_id: str):
         """Get completed jobs for an agent."""
-        return self._completed_jobs.get(agent_id, [])
+        async def _get():
+            async with self.session_factory() as session:
+                stmt = select(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.status == "completed"
+                ).order_by(Job.completed_time.desc())
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+                return [self._job_to_job_info(job) for job in jobs]
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get completed jobs for agent {agent_id}: {e}")
+            return []
     
     async def add_completed_job(self, agent_id: str, job_info):
         """Add a job to the completed jobs for an agent."""
-        if agent_id not in self._completed_jobs:
-            self._completed_jobs[agent_id] = []
-        self._completed_jobs[agent_id].append(job_info)
+        # Set status to completed and ensure agent_id matches
+        job_info_copy = job_info.model_copy()
+        job_info_copy.agent_id = agent_id
+        job_info_copy.status.status = JobStatusEnum.COMPLETED
+        await self._upsert_job(job_info_copy)
     
     async def get_failed_jobs(self, agent_id: str):
         """Get failed jobs for an agent."""
-        return self._failed_jobs.get(agent_id, [])
+        async def _get():
+            async with self.session_factory() as session:
+                stmt = select(Job).where(
+                    Job.agent_id == agent_id,
+                    Job.status == "failed"
+                ).order_by(Job.completed_time.desc())
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+                return [self._job_to_job_info(job) for job in jobs]
+        
+        try:
+            return await self._retry_operation(_get)
+        except Exception as e:
+            self.logger.error(f"Failed to get failed jobs for agent {agent_id}: {e}")
+            return []
     
     async def add_failed_job(self, agent_id: str, job_info):
         """Add a job to the failed jobs for an agent."""
-        if agent_id not in self._failed_jobs:
-            self._failed_jobs[agent_id] = []
-        self._failed_jobs[agent_id].append(job_info)
+        # Set status to failed and ensure agent_id matches
+        job_info_copy = job_info.model_copy()
+        job_info_copy.agent_id = agent_id
+        job_info_copy.status.status = JobStatusEnum.FAILED
+        await self._upsert_job(job_info_copy)
     
     async def save_experiment_results(self, experiment_id: str, results):
         """Save experiment results."""
