@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import JobManagerSettings
 from .storage.base import StorageBackend
@@ -88,7 +88,7 @@ class JobManager:
             job_id=job_id,
             experiment_id=experiment_id,
             agent_id=agent_id,
-            created_time=datetime.utcnow(),
+            created_time=datetime.now(timezone.utc),
             status=job_status
         )
         
