@@ -43,15 +43,17 @@ class AgentManager:
     and coordination of agent-related operations.
     """
     
-    def __init__(self, settings: Optional[AgentManagerSettings] = None):
+    def __init__(self, settings: Optional[AgentManagerSettings] = None, storage: Optional[StorageBackend] = None):
         """Initialize the agent manager.
         
         Args:
             settings: Server configuration settings. If None, will load from environment.
+            storage: Storage backend for persisting agent data. If None, will create from settings.
         """
         self.settings = settings or AgentManagerSettings()
         self.logger = self._setup_logging()
-        self.storage: Optional[StorageBackend] = None
+        self.storage = storage
+        self._owns_storage = storage is None  # Track if we created storage vs. received it
         
         self.logger.info("Agent manager initialized")
     
@@ -113,21 +115,28 @@ class AgentManager:
     
     async def _setup_database(self) -> None:
         """Setup database connection and initialize schema."""
-        self.logger.info("Setting up storage backend...")
-        
-        # Create storage backend using factory
-        self.storage = storage_factory.create_storage_backend(self.settings.storage)
-        
-        # Initialize the storage backend
-        await self.storage.initialize()
-        
-        self.logger.info(f"Storage backend ({self.settings.storage.storage_backend}) initialized successfully")
+        # Only create storage backend if one wasn't provided
+        if self.storage is None:
+            self.logger.info("Setting up storage backend...")
+            
+            # Create storage backend using factory
+            self.storage = storage_factory.create_storage_backend(self.settings.storage)
+            
+            # Initialize the storage backend
+            await self.storage.initialize()
+            
+            self.logger.info(f"Storage backend ({self.settings.storage.storage_backend}) initialized successfully")
+        else:
+            self.logger.info("Using provided storage backend")
     
     async def _cleanup_database(self) -> None:
         """Cleanup database connections."""
-        self.logger.info("Cleaning up storage backend...")
-        if self.storage:
+        # Only close storage if we created it ourselves
+        if self.storage and self._owns_storage:
+            self.logger.info("Cleaning up storage backend...")
             await self.storage.close()
+        elif self.storage:
+            self.logger.info("Storage backend cleanup handled by app")
 
     
     async def register_agent(self, agent_url: str) -> dict:

@@ -23,17 +23,19 @@ class ExperimentManager:
     job results.
     """
     
-    def __init__(self, settings: Optional[ExperimentManagerSettings] = None):
+    def __init__(self, settings: Optional[ExperimentManagerSettings] = None, storage: Optional[StorageBackend] = None):
         """Initialize the experiment manager.
         
         Args:
             settings: Experiment manager configuration settings. If None, will load from environment.
+            storage: Storage backend for persisting experiment data. If None, will create from settings.
         """
         self.settings = settings or ExperimentManagerSettings()
         self.logger = None  # Set up during start()
         
         # Core components
-        self.storage_backend: Optional[StorageBackend] = None
+        self.storage_backend = storage
+        self._owns_storage = storage is None  # Track if we created storage vs. received it
         
         # State management
         self._started = False
@@ -69,10 +71,13 @@ class ExperimentManager:
         self.logger.info("Stopping experiment manager backend...")
         
         try:
-            # Clean up storage backend
-            if self.storage_backend:
+            # Clean up storage backend only if we created it
+            if self.storage_backend and self._owns_storage:
                 self.logger.info("Cleaning up storage backend...")
                 await self.storage_backend.close()
+                self.storage_backend = None
+            elif self.storage_backend:
+                self.logger.info("Storage backend cleanup handled by app")
                 self.storage_backend = None
             
             self._started = False
@@ -108,15 +113,19 @@ class ExperimentManager:
     
     async def _setup_storage_backend(self) -> None:
         """Set up and initialize storage backend."""
-        self.logger.info("Setting up storage backend...")
-        
-        # Create storage backend instance
-        self.storage_backend = storage_factory.create_storage_backend(self.settings.storage)
-        
-        # Initialize the backend
-        await self.storage_backend.initialize()
-        
-        self.logger.info(f"Storage backend ({self.settings.storage.storage_backend}) initialized successfully")
+        # Only create storage backend if one wasn't provided
+        if self.storage_backend is None:
+            self.logger.info("Setting up storage backend...")
+            
+            # Create storage backend instance
+            self.storage_backend = storage_factory.create_storage_backend(self.settings.storage)
+            
+            # Initialize the backend
+            await self.storage_backend.initialize()
+            
+            self.logger.info(f"Storage backend ({self.settings.storage.storage_backend}) initialized successfully")
+        else:
+            self.logger.info("Using provided storage backend")
     
     async def create_experiment(self, experiment_spec: ExperimentSpec) -> Dict[str, any]:
         """Create and store a new experiment.

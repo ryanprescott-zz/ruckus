@@ -227,6 +227,7 @@ class Settings(BaseSettings):
     
     # Nested settings
     app: AppSettings = Field(default_factory=AppSettings)
+    storage: StorageSettings = Field(default_factory=StorageSettings)
     agent_manager: AgentManagerSettings = Field(default_factory=AgentManagerSettings)
     experiment_manager: ExperimentManagerSettings = Field(default_factory=ExperimentManagerSettings)
     job_manager: JobManagerSettings = Field(default_factory=JobManagerSettings)

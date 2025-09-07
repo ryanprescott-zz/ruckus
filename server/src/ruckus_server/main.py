@@ -19,6 +19,7 @@ from .core.config import Settings
 from .core.agent_manager import AgentManager
 from .core.experiment_manager import ExperimentManager
 from .core.job_manager import JobManager
+from .core.storage.factory import storage_factory
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +32,22 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting RUCKUS Server v{__version__}")
     
-    # Initialize AgentManager with settings
-    agent_manager = AgentManager(settings.agent_manager)
+    # Create shared storage backend instance
+    storage_backend = storage_factory.create_storage_backend(settings.storage)
+    await storage_backend.initialize()
+    
+    # Initialize managers with shared storage backend
+    agent_manager = AgentManager(settings.agent_manager, storage=storage_backend)
     await agent_manager.start()
     
-    # Initialize ExperimentManager with settings
-    experiment_manager = ExperimentManager(settings.experiment_manager)
+    experiment_manager = ExperimentManager(settings.experiment_manager, storage=storage_backend)
     await experiment_manager.start()
     
-    # Initialize JobManager with settings
-    # JobManager needs the same storage as experiment_manager
-    job_manager = JobManager(settings.job_manager, experiment_manager.storage_backend)
+    job_manager = JobManager(settings.job_manager, storage=storage_backend)
     await job_manager.start()
     
-    # Make managers available to the app
+    # Make managers and storage available to the app
+    app.state.storage_backend = storage_backend
     app.state.agent_manager = agent_manager
     app.state.experiment_manager = experiment_manager
     app.state.job_manager = job_manager
@@ -59,6 +62,8 @@ async def lifespan(app: FastAPI):
         await app.state.agent_manager.stop()
     if hasattr(app.state, 'experiment_manager') and app.state.experiment_manager:
         await app.state.experiment_manager.stop()
+    if hasattr(app.state, 'storage_backend') and app.state.storage_backend:
+        await app.state.storage_backend.close()
 
 
 app = FastAPI(
