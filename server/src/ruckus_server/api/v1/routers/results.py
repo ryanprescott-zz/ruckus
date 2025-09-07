@@ -32,7 +32,7 @@ async def list_experiment_results(
     Raises:
         HTTPException: 500 for errors
     """
-    storage = request.app.state.storage
+    storage = request.app.state.storage_backend
     
     try:
         # Get all experiment results from storage
@@ -65,7 +65,7 @@ async def get_experiment_result(
         HTTPException: 404 if job result not found
         HTTPException: 500 for other errors
     """
-    storage = request.app.state.storage
+    storage = request.app.state.storage_backend
     
     try:
         # Get experiment result by job ID
