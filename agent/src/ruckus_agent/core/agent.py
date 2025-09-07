@@ -116,7 +116,14 @@ class Agent:
                 if job.job_id in self.queued_job_ids:
                     self.queued_job_ids.remove(job.job_id)
                 logger.info(f"Agent {self.agent_id} received job from queue: {job.job_id}")
-                await self._execute_job(job)
+                
+                # Execute job in a separate task to avoid blocking the job executor
+                task = asyncio.create_task(self._execute_job(job))
+                # Store the task so it doesn't get garbage collected
+                self.tasks.append(task)
+                # Remove completed tasks to prevent memory leaks
+                task.add_done_callback(lambda t: self.tasks.remove(t) if t in self.tasks else None)
+                
             except asyncio.CancelledError:
                 logger.debug(f"Agent {self.agent_id} job executor cancelled")
                 break
@@ -184,6 +191,9 @@ class Agent:
             start_time: When job execution started
         """
         try:
+            # Yield control at the start to ensure responsiveness
+            await asyncio.sleep(0)
+            
             # Start job tracking for error reporting
             await self.error_reporter.start_job_tracking(job.job_id, "initializing")
             
@@ -437,8 +447,14 @@ class Agent:
             # Inference execution
             await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_inference")
             
+            # Yield control to allow other operations
+            await asyncio.sleep(0)
+            
             # TODO: Implement actual inference with metrics collection
             await asyncio.sleep(0.2)  # Simulate inference time
+            
+            # Yield control again after inference
+            await asyncio.sleep(0)
             
             # Collect performance metrics
             metrics = {
@@ -556,19 +572,33 @@ class Agent:
             
             logger.info("Starting GPU benchmarks during cold start")
             
-            benchmark = GPUBenchmark()
-            if not await benchmark.initialize():
-                logger.warning("Failed to initialize GPU benchmark")
-                return None
+            # Run GPU benchmarks in a separate thread to avoid blocking the event loop
+            def run_benchmark_sync():
+                benchmark = GPUBenchmark()
+                # Run initialization synchronously in the thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    initialized = loop.run_until_complete(benchmark.initialize())
+                    if not initialized:
+                        logger.warning("Failed to initialize GPU benchmark")
+                        return None
+                    
+                    # Get available GPU memory (simulate with a reasonable amount)
+                    # TODO: Get actual available GPU memory
+                    available_memory_mb = 8192  # Simulate 8GB available
+                    
+                    # Run comprehensive benchmarks
+                    results = loop.run_until_complete(benchmark.run_comprehensive_benchmark(available_memory_mb))
+                    return results
+                finally:
+                    loop.close()
             
-            # Get available GPU memory (simulate with a reasonable amount)
-            # TODO: Get actual available GPU memory
-            available_memory_mb = 8192  # Simulate 8GB available
+            # Execute in thread pool to avoid blocking the main event loop
+            results = await asyncio.to_thread(run_benchmark_sync)
             
-            # Run comprehensive benchmarks
-            results = await benchmark.run_comprehensive_benchmark(available_memory_mb)
-            
-            logger.info(f"GPU benchmarks completed on device: {results.get('benchmark_device', 'unknown')}")
+            if results:
+                logger.info(f"GPU benchmarks completed on device: {results.get('benchmark_device', 'unknown')}")
             return results
             
         except Exception as e:
