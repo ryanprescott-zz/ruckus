@@ -389,9 +389,8 @@
   border-radius: 12px;
   font-family: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
   font-size: 0.75rem;
-  line-height: 1.6;
-  background: var(--bg-secondary);
-  backdrop-filter: blur(10px);
+  line-height: 1.2;
+  background: var(--bg-primary);
   resize: none;
   box-sizing: border-box;
   color: var(--text-primary);
