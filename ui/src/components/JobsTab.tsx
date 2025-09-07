@@ -199,26 +199,125 @@ const JobsTab: React.FC = () => {
   const getFilteredAgents = (): RegisteredAgentInfo[] => {
     if (!selectedExperiment) return agents;
     
-    return agents.filter(agent => {
-      // Check if agent has capabilities
-      if (!agent.capabilities) return false;
+    // Debug logging
+    console.log('=== Agent Filtering Debug ===');
+    console.log('Selected experiment:', selectedExperiment);
+    console.log('Selected experiment model (raw):', `"${selectedExperiment.model}"`);
+    console.log('Selected experiment framework (raw):', selectedExperiment.framework);
+    console.log('Selected experiment framework name (raw):', `"${selectedExperiment.framework.name}"`);
+    console.log('Available agents count:', agents.length);
+    
+    const expectedModel = selectedExperiment.model.toLowerCase().trim();
+    const expectedFramework = selectedExperiment.framework.name.toLowerCase().trim();
+    console.log('Expected model (processed):', `"${expectedModel}"`);
+    console.log('Expected framework (processed):', `"${expectedFramework}"`);
+    
+    const filteredAgents = agents.filter(agent => {
+      console.log('\n--- Checking agent:', agent.agent_id);
+      console.log('Full agent object:', JSON.stringify(agent, null, 2));
       
-      // Check model name match (exact)
-      const modelMatches = agent.capabilities.models && Array.isArray(agent.capabilities.models) 
-        ? agent.capabilities.models.some((model: string) =>
-            model.toLowerCase() === selectedExperiment.model.toLowerCase()
-          )
-        : false;
+      // Check multiple possible structures based on description
+      let modelMatches = false;
+      let frameworkMatches = false;
       
-      // Check framework match (frameworks is an array of strings, not objects)
-      const frameworkMatches = agent.capabilities.frameworks && Array.isArray(agent.capabilities.frameworks)
-        ? agent.capabilities.frameworks.some((framework: string) =>
-            framework.toLowerCase() === selectedExperiment.framework.name.toLowerCase()
-          )
-        : false;
+      // Try structure 1: agent.system_info.models and agent.system_info.frameworks
+      console.log('Checking structure 1: agent.system_info.models and agent.system_info.frameworks');
+      console.log('agent.system_info exists:', !!agent.system_info);
+      console.log('agent.system_info.models exists:', !!agent.system_info?.models);
+      console.log('agent.system_info.frameworks exists:', !!agent.system_info?.frameworks);
+      
+      // Check models in system_info.models (object with model names as keys)
+      if (agent.system_info?.models && typeof agent.system_info.models === 'object') {
+        console.log('Agent models (system_info):', Object.keys(agent.system_info.models));
+        
+        // Check if the expected model exists as a key in the models object
+        const modelKeys = Object.keys(agent.system_info.models);
+        for (const modelKey of modelKeys) {
+          const modelKeyProcessed = modelKey.toLowerCase().trim();
+          console.log(`  Checking model key: "${modelKey}" -> "${modelKeyProcessed}" vs "${expectedModel}"`);
+          if (modelKeyProcessed === expectedModel) {
+            modelMatches = true;
+            console.log(`🔍 MODEL MATCH FOUND: "${modelKey}" matches "${selectedExperiment.model}"`);
+            break;
+          }
+        }
+        
+        if (!modelMatches) {
+          console.log('❌ No model key matches in system_info.models');
+        }
+      } else {
+        console.log('❌ agent.system_info.models is not available or not an object');
+      }
+      
+      // Check frameworks in system_info.frameworks (array of framework objects)
+      if (agent.system_info?.frameworks && Array.isArray(agent.system_info.frameworks)) {
+        console.log('Agent frameworks (system_info):', agent.system_info.frameworks);
+        
+        for (let i = 0; i < agent.system_info.frameworks.length; i++) {
+          const framework = agent.system_info.frameworks[i];
+          if (framework && framework.name) {
+            const frameworkName = framework.name.toLowerCase().trim();
+            console.log(`  Framework ${i}: "${framework.name}" -> "${frameworkName}" vs "${expectedFramework}"`);
+            if (frameworkName === expectedFramework) {
+              frameworkMatches = true;
+              console.log(`🔍 FRAMEWORK MATCH FOUND: "${framework.name}" matches "${selectedExperiment.framework.name}"`);
+              break;
+            }
+          }
+        }
+        
+        if (!frameworkMatches) {
+          console.log('❌ No framework name matches in system_info.frameworks');
+        }
+      } else {
+        console.log('❌ agent.system_info.frameworks is not available or not an array');
+      }
+      
+      // Try structure 2: agent.capabilities.models[] and agent.capabilities.frameworks[]
+      if (!modelMatches && agent.capabilities) {
+        console.log('\nTrying structure 2: capabilities');
+        console.log('agent.capabilities:', agent.capabilities);
+        console.log('agent.capabilities.models exists:', !!agent.capabilities.models);
+        console.log('agent.capabilities.frameworks exists:', !!agent.capabilities.frameworks);
+        
+        if (agent.capabilities.models && Array.isArray(agent.capabilities.models)) {
+          console.log('Agent models (structure 2):', agent.capabilities.models);
+          agent.capabilities.models.forEach((model: string, index: number) => {
+            const processedModel = model.toLowerCase().trim();
+            const matches = processedModel === expectedModel;
+            console.log(`  Model ${index}: "${model}" -> "${processedModel}" matches "${expectedModel}": ${matches}`);
+            if (matches) modelMatches = true;
+          });
+          console.log('Model matches (structure 2):', modelMatches);
+        }
+        
+        if (!frameworkMatches && agent.capabilities.frameworks && Array.isArray(agent.capabilities.frameworks)) {
+          console.log('Agent frameworks (structure 2):', agent.capabilities.frameworks);
+          agent.capabilities.frameworks.forEach((framework: string, index: number) => {
+            const processedFramework = framework.toLowerCase().trim();
+            const matches = processedFramework === expectedFramework;
+            console.log(`  Framework ${index}: "${framework}" -> "${processedFramework}" matches "${expectedFramework}": ${matches}`);
+            if (matches) frameworkMatches = true;
+          });
+          console.log('Framework matches (structure 2):', frameworkMatches);
+        }
+      }
+      
+      console.log('\n🏁 FINAL RESULT for agent', agent.agent_id);
+      console.log('  modelMatches:', modelMatches);
+      console.log('  frameworkMatches:', frameworkMatches);
+      console.log('  Agent included:', modelMatches && frameworkMatches);
+      console.log('='.repeat(50));
       
       return modelMatches && frameworkMatches;
     });
+    
+    console.log('\n📊 FILTERING SUMMARY');
+    console.log('Total agents:', agents.length);
+    console.log('Filtered agents:', filteredAgents.length);
+    console.log('Filtered agent IDs:', filteredAgents.map(a => a.agent_id));
+    
+    return filteredAgents;
   };
 
   // Handle agent selection in New Job mode

@@ -40,7 +40,18 @@ export interface AgentInfo {
   agent_id: string;
   agent_name?: string;
   agent_type: AgentType;
-  system_info: Record<string, any>;
+  system_info: {
+    models?: Record<string, {
+      name: string;
+      [key: string]: any;
+    }>;
+    frameworks?: Array<{
+      name: string;
+      version?: string;
+      [key: string]: any;
+    }>;
+    [key: string]: any;
+  };
   capabilities: Record<string, any>;
   last_updated: string; // ISO timestamp
 }
