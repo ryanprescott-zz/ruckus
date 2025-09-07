@@ -200,16 +200,22 @@ const JobsTab: React.FC = () => {
     if (!selectedExperiment) return agents;
     
     return agents.filter(agent => {
-      // Check model name match (partial)
-      const modelMatches = agent.capabilities?.models?.some((model: string) =>
-        model.toLowerCase().includes(selectedExperiment.model.toLowerCase()) ||
-        selectedExperiment.model.toLowerCase().includes(model.toLowerCase())
-      );
+      // Check if agent has capabilities
+      if (!agent.capabilities) return false;
       
-      // Check framework match
-      const frameworkMatches = agent.capabilities?.frameworks?.some((framework: any) =>
-        framework.name === selectedExperiment.framework.name
-      );
+      // Check model name match (exact)
+      const modelMatches = agent.capabilities.models && Array.isArray(agent.capabilities.models) 
+        ? agent.capabilities.models.some((model: string) =>
+            model.toLowerCase() === selectedExperiment.model.toLowerCase()
+          )
+        : false;
+      
+      // Check framework match (frameworks is an array of strings, not objects)
+      const frameworkMatches = agent.capabilities.frameworks && Array.isArray(agent.capabilities.frameworks)
+        ? agent.capabilities.frameworks.some((framework: string) =>
+            framework.toLowerCase() === selectedExperiment.framework.name.toLowerCase()
+          )
+        : false;
       
       return modelMatches && frameworkMatches;
     });
