@@ -4,7 +4,7 @@ import type {
   ExperimentResultTableRow,
 } from '../types/api';
 import { apiClient } from '../services/api';
-import { formatTimestamp, formatAgentDetails } from '../utils/format';
+import { formatAgentDetails } from '../utils/format';
 import './ResultsTab.css';
 
 // Configuration

@@ -3,8 +3,7 @@ import type {
   JobInfo,
   JobTableRow,
   RegisteredAgentInfo,
-  ExperimentSpec,
-  JobStatusEnum
+  ExperimentSpec
 } from '../types/api';
 import { apiClient } from '../services/api';
 import { formatTimestamp, formatAgentDetails } from '../utils/format';
