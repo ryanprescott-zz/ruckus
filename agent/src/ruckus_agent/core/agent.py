@@ -946,3 +946,54 @@ class Agent:
     async def execute_job(self, job: JobRequest):
         """Execute a job directly (for testing purposes)."""
         return await self._execute_job(job)
+    
+    async def get_error_reports(self) -> List[Dict[str, Any]]:
+        """Get all error reports from the error reporter."""
+        # Return error reports from the error_reporter's failure contexts
+        reports = []
+        for job_id, context in self.error_reporter.failure_contexts.items():
+            report = {
+                "job_id": job_id,
+                "stage": context.stage,
+                "start_time": context.start_time,
+                "stage_history": context.stage_history,
+                "metrics_snapshots": [s.__dict__ for s in context.metrics_snapshots] if context.metrics_snapshots else []
+            }
+            reports.append(report)
+        return reports
+    
+    async def get_error_report(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific error report by job ID."""
+        context = self.error_reporter.failure_contexts.get(job_id)
+        if context:
+            return {
+                "job_id": job_id,
+                "stage": context.stage,
+                "start_time": context.start_time,
+                "stage_history": context.stage_history,
+                "metrics_snapshots": [s.__dict__ for s in context.metrics_snapshots] if context.metrics_snapshots else []
+            }
+        return None
+    
+    async def clear_error_reports(self) -> int:
+        """Clear all error reports and return the count of cleared reports."""
+        count = len(self.error_reporter.failure_contexts)
+        self.error_reporter.failure_contexts.clear()
+        # Also reset crash state when clearing error reports
+        self.crashed = False
+        self.crash_reason = None
+        return count
+    
+    @property
+    def error_reports(self) -> Dict[str, Any]:
+        """Get error reports dictionary for backward compatibility."""
+        # Convert failure contexts to a simple dict format
+        reports = {}
+        for job_id, context in self.error_reporter.failure_contexts.items():
+            reports[job_id] = {
+                "job_id": job_id,
+                "stage": context.stage,
+                "start_time": context.start_time,
+                "stage_history": context.stage_history
+            }
+        return reports

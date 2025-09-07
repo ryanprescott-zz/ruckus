@@ -385,6 +385,12 @@ class JobRequest(BaseModel):
     callback_url: Optional[str] = None
 
 
+class ExecuteJobRequest(BaseModel):
+    """Request to execute a job with experiment specification."""
+    experiment_spec: ExperimentSpec
+    job_id: str
+
+
 class JobUpdate(BaseModel):
     """Progress update for a running job (agent -> server)."""
     job_id: str

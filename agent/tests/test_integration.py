@@ -174,7 +174,7 @@ class TestAgentIntegration:
             experiment_id="test-exp-456",
             model="test-llama-7b",
             framework="vllm",
-            task_type=TaskType.GENERATION,
+            task_type=TaskType.LLM_GENERATION,
             task_config={"prompt": "Test prompt"},
             parameters={"temperature": 0.7, "max_tokens": 100}
         )
@@ -203,7 +203,7 @@ class TestAgentIntegration:
             experiment_id="test-exp-456",
             model="nonexistent-model",  # This will cause failure
             framework="vllm",
-            task_type=TaskType.GENERATION,
+            task_type=TaskType.LLM_GENERATION,
             task_config={},
             parameters={}
         )
@@ -220,10 +220,10 @@ class TestAgentIntegration:
         if error_reports:
             # Verify error report structure
             report = error_reports[0]
-            assert report.job_id == "failing-job-123"
-            assert report.agent_id == agent.agent_id
-            assert report.error_message is not None
-            assert report.metrics_at_failure is not None
+            assert report["job_id"] == "failing-job-123"
+            assert "stage" in report
+            assert "start_time" in report
+            assert "stage_history" in report
     
     @pytest.mark.asyncio
     async def test_agent_crash_recovery(self, agent):
@@ -256,7 +256,7 @@ class TestAgentIntegration:
                 experiment_id="test-exp",
                 model="test-llama-7b",
                 framework="vllm",
-                task_type=TaskType.GENERATION,
+                task_type=TaskType.LLM_GENERATION,
                 task_config={},
                 parameters={}
             )
@@ -333,7 +333,7 @@ class TestAgentIntegration:
             experiment_id="test-exp",
             model="test-model",
             framework="vllm",
-            task_type=TaskType.GENERATION,
+            task_type=TaskType.LLM_GENERATION,
             task_config={},
             parameters={}
         )
@@ -378,8 +378,10 @@ class TestAgentStatusTransitions:
             assert len(status.running_jobs) == 0
             
             # Add a running job directly (simulating job execution)
+            mock_job = MagicMock()
+            mock_job.experiment_id = "test-experiment"
             agent.running_jobs["test-job"] = {
-                "job": MagicMock(),
+                "job": mock_job,
                 "start_time": datetime.now(timezone.utc)
             }
             
@@ -414,22 +416,17 @@ class TestAgentStatusTransitions:
             assert status.status == AgentStatusEnum.ERROR
             
             # Create an error report to test recovery
-            from ruckus_agent.core.models import JobErrorReport, SystemMetricsSnapshot
-            error_report = JobErrorReport(
+            from ruckus_agent.core.models import JobFailureContext, SystemMetricsSnapshot
+            
+            # Add a failure context to the error reporter
+            failure_context = JobFailureContext(
                 job_id="crashed-job",
-                experiment_id="test-exp",
-                agent_id=agent.agent_id,
-                error_type="test_crash",
-                error_message="Test crash",
-                model_name="test-model",
-                model_path="/test/path",
-                framework="test",
-                task_type="test",
-                parameters={},
-                started_at=datetime.now(timezone.utc),
-                metrics_at_failure=SystemMetricsSnapshot()
+                stage="test_crash",
+                start_time=datetime.now(timezone.utc)
             )
-            agent.error_reports["crashed-job"] = error_report
+            failure_context.metrics_snapshots.append(SystemMetricsSnapshot())
+            failure_context.stage_history.append("test_crash")
+            agent.error_reporter.failure_contexts["crashed-job"] = failure_context
             
             # Clear error reports should reset crash state
             cleared_count = await agent.clear_error_reports()
@@ -458,33 +455,27 @@ class TestAgentStatusTransitions:
             assert len(reports) == 0
             
             # Add error report directly
-            from ruckus_agent.core.models import JobErrorReport, SystemMetricsSnapshot
-            error_report = JobErrorReport(
-                job_id="error-job-123",
-                experiment_id="test-exp",
-                agent_id=agent.agent_id,
-                error_type="model_loading_error",
-                error_message="Failed to load model",
-                model_name="test-model",
-                model_path="/test/path",
-                framework="vllm",
-                task_type="generation",
-                parameters={"temperature": 0.7},
-                started_at=datetime.now(timezone.utc),
-                metrics_at_failure=SystemMetricsSnapshot()
-            )
+            from ruckus_agent.core.models import JobFailureContext, SystemMetricsSnapshot
             
-            agent.error_reports["error-job-123"] = error_report
+            # Add a failure context to the error reporter
+            failure_context = JobFailureContext(
+                job_id="error-job-123",
+                stage="model_loading",
+                start_time=datetime.now(timezone.utc)
+            )
+            failure_context.metrics_snapshots.append(SystemMetricsSnapshot())
+            failure_context.stage_history.append("model_loading")
+            agent.error_reporter.failure_contexts["error-job-123"] = failure_context
             
             # Verify report is retrievable
             reports = await agent.get_error_reports()
             assert len(reports) == 1
-            assert reports[0].job_id == "error-job-123"
+            assert reports[0]["job_id"] == "error-job-123"
             
             # Test individual report retrieval
             specific_report = await agent.get_error_report("error-job-123")
             assert specific_report is not None
-            assert specific_report.job_id == "error-job-123"
+            assert specific_report["job_id"] == "error-job-123"
             
             # Test non-existent report
             missing_report = await agent.get_error_report("nonexistent-job")
@@ -581,7 +572,7 @@ class TestEndToEndScenarios:
                 experiment_id="e2e-test",
                 model=discovered_model["name"],
                 framework="vllm",
-                task_type=TaskType.GENERATION,
+                task_type=TaskType.LLM_GENERATION,
                 task_config={"prompt": "Hello, world!"},
                 parameters={"temperature": 0.7, "max_tokens": 50}
             )
@@ -598,9 +589,9 @@ class TestEndToEndScenarios:
             
             if error_reports:
                 report = error_reports[0]
-                assert report.job_id == "e2e-test-job"
-                assert report.model_name == discovered_model["name"]
-                assert report.framework == "vllm"
+                assert report["job_id"] == "e2e-test-job"
+                assert "stage" in report
+                assert "start_time" in report
                 
         finally:
             await agent.stop()

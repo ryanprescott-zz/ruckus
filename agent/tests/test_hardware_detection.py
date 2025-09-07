@@ -322,9 +322,11 @@ class TestHardwareDetection:
                 print(f"     - MPS (Apple): {'✅' if mps_available else '❌'}")
             
             elif name == "transformers" and available:
-                capabilities = framework.get("capabilities", {})
-                print(f"     - Text Generation: {'✅' if capabilities.get('text_generation') else '❌'}")
-                print(f"     - Tokenization: {'✅' if capabilities.get('tokenization') else '❌'}")
+                capabilities = framework.capabilities
+                text_gen = capabilities.text_generation if capabilities else False
+                tokenization = capabilities.tokenization if capabilities else False
+                print(f"     - Text Generation: {'✅' if text_gen else '❌'}")
+                print(f"     - Tokenization: {'✅' if tokenization else '❌'}")
         
         # Warn about missing critical frameworks
         if "pytorch" not in framework_names:

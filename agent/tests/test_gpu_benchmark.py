@@ -695,7 +695,7 @@ class TestGpuMetricsCollection:
             experiment_id="gpu-test",
             model="test-model", 
             framework="pytorch",
-            task_type=TaskType.SUMMARIZATION,
+            task_type=TaskType.LLM_GENERATION,
             task_config={"input_text": "Test"},
             runs_per_job=3,
             required_metrics=["gpu_utilization", "gpu_memory", "gpu_temperature"]
