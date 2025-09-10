@@ -55,6 +55,9 @@ class MetricType(str, Enum):
 class TaskType(str, Enum):
     """Supported benchmark task types."""
     LLM_GENERATION = "llm_generation"
+    GPU_BENCHMARK = "gpu_benchmark"
+    MEMORY_BENCHMARK = "memory_benchmark"
+    COMPUTE_BENCHMARK = "compute_benchmark"
 
 
 class AgentStatusEnum(str, Enum):
@@ -297,6 +300,70 @@ class MetricsSpec(BaseModel):
     """Specification for metrics to be collected."""
     metrics: Dict
 
+
+# Capability Requirement Models
+class GPURequirements(BaseModel):
+    """Requirements for GPU hardware experiments."""
+    min_gpu_count: int = Field(default=1, ge=1, description="Minimum number of GPUs required")
+    min_memory_mb: Optional[int] = Field(default=None, description="Minimum GPU memory in MB")
+    required_vendors: List[GPUVendor] = Field(default_factory=list, description="Required GPU vendors (empty = any)")
+    required_precision_types: List[PrecisionType] = Field(default_factory=list, description="Required precision support")
+    tensor_cores_required: bool = Field(default=False, description="Whether tensor cores are required")
+    min_tensor_core_generation: Optional[TensorCoreGeneration] = Field(default=None, description="Minimum tensor core generation")
+
+
+class ModelRequirements(BaseModel):
+    """Requirements for model inference experiments."""
+    required_frameworks: List[FrameworkName] = Field(default_factory=list, description="Required ML frameworks")
+    model_architectures: List[str] = Field(default_factory=list, description="Compatible model architectures (e.g., 'llama', 'bert')")
+    min_gpu_memory_gb: Optional[float] = Field(default=None, description="Minimum GPU memory for model loading")
+    tokenization_required: bool = Field(default=True, description="Whether tokenization capability is required")
+    streaming_support: bool = Field(default=False, description="Whether streaming generation is required")
+
+
+class SystemRequirements(BaseModel):
+    """General system requirements for experiments."""
+    min_total_memory_gb: Optional[float] = Field(default=None, description="Minimum system RAM in GB")
+    required_os_types: List[OSType] = Field(default_factory=list, description="Required operating systems (empty = any)")
+    required_cpu_architectures: List[CPUArchitecture] = Field(default_factory=list, description="Required CPU architectures (empty = any)")
+    min_cpu_cores: Optional[int] = Field(default=None, description="Minimum CPU cores")
+
+
+class ExperimentCapabilityRequirements(BaseModel):
+    """Complete capability requirements for an experiment type."""
+    required_capabilities: List[str] = Field(default_factory=list, description="Required agent capabilities")
+    required_metrics: List[str] = Field(default_factory=list, description="Metrics that must be collectable")
+    optional_metrics: List[str] = Field(default_factory=list, description="Additional metrics to collect if available")
+    gpu_requirements: Optional[GPURequirements] = Field(default=None, description="GPU-specific requirements")
+    model_requirements: Optional[ModelRequirements] = Field(default=None, description="Model-specific requirements") 
+    system_requirements: Optional[SystemRequirements] = Field(default=None, description="General system requirements")
+    timeout_seconds: int = Field(default=3600, gt=0, description="Default timeout for this experiment type")
+
+
+# Specialized Task Parameter Models
+class GPUBenchmarkParams(BaseModel):
+    """Parameters for GPU benchmark experiments."""
+    test_memory_bandwidth: bool = Field(default=True, description="Test memory bandwidth")
+    test_compute_flops: bool = Field(default=True, description="Test FLOPS across precisions")
+    test_tensor_cores: bool = Field(default=False, description="Test tensor core performance specifically")
+    max_memory_usage_percent: float = Field(default=80.0, ge=10.0, le=95.0, description="Max GPU memory to use for tests")
+    benchmark_duration_seconds: int = Field(default=30, ge=5, le=300, description="Duration for each benchmark")
+
+
+class MemoryBenchmarkParams(BaseModel):
+    """Parameters for memory bandwidth benchmark experiments."""
+    test_sizes_mb: List[int] = Field(default_factory=lambda: [64, 256, 1024], description="Memory test sizes in MB")
+    test_patterns: List[str] = Field(default_factory=lambda: ["sequential", "random"], description="Memory access patterns")
+    iterations_per_size: int = Field(default=10, ge=1, le=100, description="Iterations per test size")
+
+
+class ComputeBenchmarkParams(BaseModel):
+    """Parameters for compute benchmark experiments."""
+    precision_types: List[PrecisionType] = Field(default_factory=lambda: [PrecisionType.FP32, PrecisionType.FP16], description="Precision types to test")
+    matrix_sizes: List[int] = Field(default_factory=lambda: [1024, 2048, 4096], description="Matrix sizes for FLOPS tests")
+    include_tensor_ops: bool = Field(default=True, description="Include tensor operation benchmarks")
+
+
 # Enhanced Experiment Models
 class ExperimentSpec(TimestampedModel):
     """Enhanced specification for a benchmark experiment with orchestration support."""
@@ -306,6 +373,7 @@ class ExperimentSpec(TimestampedModel):
     task: TaskSpec
     framework: FrameworkSpec
     metrics: MetricsSpec
+    capability_requirements: Optional[ExperimentCapabilityRequirements] = Field(default=None, description="Agent capability requirements for this experiment")
 
     @computed_field
     @property
@@ -317,6 +385,110 @@ class ExperimentSpec(TimestampedModel):
     def estimate_job_count(self) -> int:
         """Estimate total number of jobs this experiment will generate."""
         return 1  # Simplified for new structure
+
+
+# Specialized Experiment Types
+class GPUBenchmarkExperiment(ExperimentSpec):
+    """Specialized experiment for GPU hardware benchmarking."""
+    
+    def __init__(self, **data):
+        # Set defaults for GPU benchmark experiments
+        if 'task' not in data:
+            data['task'] = TaskSpec(
+                name="GPU Benchmark",
+                type=TaskType.GPU_BENCHMARK,
+                description="Comprehensive GPU hardware benchmarking",
+                params=GPUBenchmarkParams()
+            )
+        
+        if 'model' not in data:
+            data['model'] = "hardware-test"  # Not applicable for hardware tests
+            
+        if 'framework' not in data:
+            data['framework'] = FrameworkSpec(
+                name=FrameworkName.PYTORCH,  # Use PyTorch for GPU ops
+                params={}
+            )
+            
+        if 'metrics' not in data:
+            data['metrics'] = MetricsSpec(
+                metrics={
+                    "memory_bandwidth_gb_s": {"required": True, "type": "performance"},
+                    "compute_flops_fp32": {"required": True, "type": "performance"},
+                    "compute_flops_fp16": {"required": False, "type": "performance"},
+                    "gpu_temperature_celsius": {"required": False, "type": "resource"},
+                    "gpu_power_usage_watts": {"required": False, "type": "resource"}
+                }
+            )
+            
+        if 'capability_requirements' not in data:
+            data['capability_requirements'] = ExperimentCapabilityRequirements(
+                required_capabilities=["gpu_monitoring", "memory_monitoring"],
+                required_metrics=["memory_bandwidth", "flops_fp32"],
+                optional_metrics=["flops_fp16", "flops_bf16", "gpu_temperature", "gpu_power"],
+                gpu_requirements=GPURequirements(
+                    min_gpu_count=1,
+                    min_memory_mb=1024  # At least 1GB GPU memory
+                ),
+                timeout_seconds=600  # 10 minutes for hardware tests
+            )
+        
+        super().__init__(**data)
+
+
+class LLMInferenceExperiment(ExperimentSpec):
+    """Specialized experiment for LLM inference benchmarking."""
+    
+    def __init__(self, **data):
+        # Set defaults for LLM inference experiments
+        if 'task' not in data:
+            data['task'] = TaskSpec(
+                name="LLM Inference",
+                type=TaskType.LLM_GENERATION,
+                description="Large Language Model inference performance testing",
+                params=LLMGenerationParams(
+                    prompt_template=PromptTemplate(
+                        messages=[PromptMessage(role=PromptRole.USER, content="What is the capital of France?")]
+                    )
+                )
+            )
+        
+        if 'framework' not in data:
+            data['framework'] = FrameworkSpec(
+                name=FrameworkName.TRANSFORMERS,
+                params={}
+            )
+            
+        if 'metrics' not in data:
+            data['metrics'] = MetricsSpec(
+                metrics={
+                    "inference_time_seconds": {"required": True, "type": "performance"},
+                    "tokens_per_second": {"required": True, "type": "performance"},
+                    "first_token_latency_ms": {"required": False, "type": "performance"},
+                    "model_load_time_seconds": {"required": False, "type": "performance"},
+                    "peak_memory_usage_mb": {"required": False, "type": "resource"},
+                    "gpu_utilization_percent": {"required": False, "type": "resource"}
+                }
+            )
+            
+        if 'capability_requirements' not in data:
+            data['capability_requirements'] = ExperimentCapabilityRequirements(
+                required_capabilities=["model_loading", "tokenization"],
+                required_metrics=["inference_time", "throughput"],
+                optional_metrics=["first_token_latency", "memory_usage", "gpu_utilization"],
+                model_requirements=ModelRequirements(
+                    required_frameworks=[FrameworkName.TRANSFORMERS, FrameworkName.VLLM],
+                    tokenization_required=True,
+                    min_gpu_memory_gb=4.0  # Minimum for small models
+                ),
+                gpu_requirements=GPURequirements(
+                    min_gpu_count=1,
+                    min_memory_mb=4096  # 4GB minimum for LLM inference
+                ),
+                timeout_seconds=1800  # 30 minutes for model experiments
+            )
+        
+        super().__init__(**data)
 
 # Orchestration Execution Models
 class ExperimentExecution(TimestampedModel):
@@ -510,24 +682,26 @@ class MultiRunJobResult(BaseModel):
 
 
 # Orchestrator Communication Models
-class AgentScore(BaseModel):
-    """Agent compatibility score for a specific job."""
+class AgentCompatibility(BaseModel):
+    """Binary agent compatibility with rich capability information."""
     agent_id: str
     agent_name: str
-    score: float = Field(ge=0.0, le=100.0, description="Compatibility score (0-100)")
+    can_run: bool = Field(description="Whether this agent can execute the experiment")
     
-    # Score breakdown
-    model_compatibility: float = 0.0
-    framework_compatibility: float = 0.0
-    hardware_suitability: float = 0.0
-    capability_match: float = 0.0
-    availability_bonus: float = 0.0
+    # Rich capability information for user decision-making
+    available_capabilities: List[str] = Field(default_factory=list, description="Capabilities this agent provides")
+    missing_requirements: List[str] = Field(default_factory=list, description="Required capabilities this agent lacks")
+    supported_features: List[str] = Field(default_factory=list, description="Optional features this agent supports")
+    warnings: List[str] = Field(default_factory=list, description="Potential limitations or concerns")
     
-    # Detailed reasons
-    compatible_models: List[str] = Field(default_factory=list)
-    missing_requirements: List[str] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
-    estimated_queue_time_seconds: Optional[float] = None
+    # Hardware and software details
+    hardware_summary: Dict[str, Any] = Field(default_factory=dict, description="Key hardware specs (GPU, memory, etc.)")
+    framework_versions: Dict[str, str] = Field(default_factory=dict, description="Available framework versions")
+    compatible_models: List[str] = Field(default_factory=list, description="Models this agent has loaded")
+    
+    # Operational context
+    estimated_queue_time_seconds: Optional[float] = Field(default=None, description="Expected wait time if agent is busy")
+    last_capability_check: datetime = Field(default_factory=datetime.utcnow, description="When compatibility was last verified")
 
 class JobAssignment(BaseModel):
     """Assignment of a job to a specific agent."""
@@ -537,7 +711,7 @@ class JobAssignment(BaseModel):
     assigned_at: datetime = Field(default_factory=datetime.utcnow)
     
     # Assignment details
-    score: float = Field(description="Agent compatibility score")
+    is_compatible: bool = Field(description="Whether agent meets experiment requirements")
     expected_duration_seconds: Optional[float] = None
     assignment_reason: str = "automatic"  # "automatic", "manual", "retry", "rebalance"
     
@@ -573,8 +747,8 @@ class AgentMatchingRequest(BaseModel):
     include_unavailable: bool = Field(default=False, description="Include agents that are currently busy")
 
 class AgentMatchingResponse(BaseModel):
-    """Response with agent compatibility scores."""
-    job_assignments: Dict[str, List[AgentScore]] = Field(default_factory=dict, description="job_id -> list of compatible agents")
+    """Response with agent compatibility information."""
+    job_assignments: Dict[str, List[AgentCompatibility]] = Field(default_factory=dict, description="job_id -> list of agents with compatibility details")
     unassignable_jobs: List[str] = Field(default_factory=list, description="Jobs with no compatible agents")
     warnings: List[str] = Field(default_factory=list)
     processed_at: datetime = Field(default_factory=datetime.utcnow)

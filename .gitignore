@@ -22,6 +22,8 @@ wheels/
 MANIFEST
 ruckus_server.log
 ruckus_agent.log
+*.env
+*.db
 # Log files
 logs/
 

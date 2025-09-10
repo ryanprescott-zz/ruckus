@@ -6,7 +6,7 @@ import re
 
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from ruckus_common.models import RegisteredAgentInfo, AgentStatus, ExperimentSpec, JobResult, JobStatusEnum
+from ruckus_common.models import RegisteredAgentInfo, AgentStatus, ExperimentSpec, JobResult, JobStatusEnum, AgentCompatibility
 from ...core.models import JobInfo
 
 
@@ -220,3 +220,20 @@ class GetExperimentResultResponse(BaseModel):
     """Response model for getting a specific experiment result by job_id."""
     
     result: ExperimentResult = Field(..., description="Experiment result for the specified job")
+
+
+class CheckAgentCompatibilityRequest(BaseModel):
+    """Request to check agent compatibility for an experiment type."""
+    
+    experiment_spec: ExperimentSpec = Field(..., description="Experiment specification to check compatibility against")
+    agent_ids: Optional[List[str]] = Field(default=None, description="Specific agent IDs to check (if None, checks all agents)")
+
+
+class CheckAgentCompatibilityResponse(BaseModel):
+    """Response with agent compatibility information."""
+    
+    compatibility_results: List[AgentCompatibility] = Field(..., description="Compatibility results for each agent")
+    experiment_name: str = Field(..., description="Name of the experiment that was checked")
+    total_agents_checked: int = Field(..., description="Total number of agents evaluated")
+    compatible_agents_count: int = Field(..., description="Number of agents that can run this experiment")
+    checked_at: datetime = Field(default_factory=datetime.utcnow, description="When the compatibility check was performed")

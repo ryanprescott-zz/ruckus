@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from ruckus_common.models import AgentCapabilitiesBase
-from ..models import RegisterAgentRequest, RegisterAgentResponse, UnregisterAgentRequest, UnregisterAgentResponse, ListAgentInfoResponse, GetAgentInfoResponse, ListAgentStatusResponse, GetAgentStatusResponse
+from ..models import RegisterAgentRequest, RegisterAgentResponse, UnregisterAgentRequest, UnregisterAgentResponse, ListAgentInfoResponse, GetAgentInfoResponse, ListAgentStatusResponse, GetAgentStatusResponse, CheckAgentCompatibilityRequest, CheckAgentCompatibilityResponse
 from ruckus_server.core.clients.http import ConnectionError, ServiceUnavailableError
 from ruckus_server.core.agent_manager import AgentAlreadyRegisteredException, AgentNotRegisteredException
 
@@ -234,4 +234,87 @@ async def get_agent_status(agent_id: str, request: Request):
         # Unexpected errors
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+
+
+
+@router.post("/compatibility/check", response_model=CheckAgentCompatibilityResponse)
+async def check_agent_compatibility(request_data: CheckAgentCompatibilityRequest, request: Request):
+    """Check which agents are compatible with an experiment specification.
+    
+    This endpoint allows the UI to determine which agents can run a specific experiment type.
+    It performs static capability analysis based on agent registration data without
+    communicating with the agents themselves.
+    
+    Args:
+        request_data: CheckAgentCompatibilityRequest containing experiment spec and optional agent filter
+        request: FastAPI request object to access app state
+        
+    Returns:
+        CheckAgentCompatibilityResponse with detailed compatibility information for each agent
+        
+    Raises:
+        HTTPException: 503 if services not initialized, 500 for other errors
+    """
+    agent_manager = request.app.state.agent_manager
+    if not agent_manager:
+        raise HTTPException(status_code=503, detail="Agent manager not initialized")
+    
+    # Check if job_manager is available for compatibility checking
+    job_manager = getattr(request.app.state, "job_manager", None)
+    if not job_manager:
+        raise HTTPException(status_code=503, detail="Job manager not initialized")
+    
+    try:
+        # Get list of agents to check
+        if request_data.agent_ids:
+            # Check specific agents
+            agents_to_check = []
+            for agent_id in request_data.agent_ids:
+                try:
+                    agent = await agent_manager.get_registered_agent_info(agent_id)
+                    agents_to_check.append(agent)
+                except AgentNotRegisteredException:
+                    # Skip agents that dont exist - dont fail the whole request
+                    continue
+        else:
+            # Check all registered agents
+            agents_to_check = await agent_manager.list_registered_agent_info()
+        
+        # Perform compatibility checking for each agent
+        compatibility_results = []
+        compatible_count = 0
+        
+        for agent in agents_to_check:
+            try:
+                compatibility = job_manager._check_agent_compatibility(agent, request_data.experiment_spec)
+                compatibility_results.append(compatibility)
+                
+                if compatibility.can_run:
+                    compatible_count += 1
+                    
+            except Exception as e:
+                # If compatibility check fails for an agent, include it with error
+                from ruckus_common.models import AgentCompatibility
+                error_compatibility = AgentCompatibility(
+                    agent_id=agent.agent_id,
+                    agent_name=agent.agent_name or agent.agent_id,
+                    can_run=False,
+                    missing_requirements=[f"Compatibility check failed: {str(e)}"],
+                    warnings=["Agent compatibility could not be determined"]
+                )
+                compatibility_results.append(error_compatibility)
+        
+        # Build response
+        response = CheckAgentCompatibilityResponse(
+            compatibility_results=compatibility_results,
+            experiment_name=request_data.experiment_spec.name,
+            total_agents_checked=len(compatibility_results),
+            compatible_agents_count=compatible_count
+        )
+        
+        return response
+        
+    except Exception as e:
+        # Unexpected errors
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 

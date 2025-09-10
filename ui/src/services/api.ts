@@ -21,6 +21,9 @@ import type {
   CreateJobResponse,
   ListExperimentResultsResponse,
   GetExperimentResultResponse,
+  CheckAgentCompatibilityRequest,
+  CheckAgentCompatibilityResponse,
+  AgentCompatibilityMatrixResponse,
 } from '../types/api';
 
 // Configuration
@@ -175,6 +178,18 @@ export class RuckusApiClient {
 
   async getExperimentResult(jobId: string): Promise<GetExperimentResultResponse> {
     return this.request<GetExperimentResultResponse>(`/results/${jobId}`);
+  }
+
+  // Agent Capability Matching endpoints
+  async checkAgentCompatibility(request: CheckAgentCompatibilityRequest): Promise<CheckAgentCompatibilityResponse> {
+    return this.request<CheckAgentCompatibilityResponse>('/agents/compatibility/check', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getAgentCompatibilityMatrix(): Promise<AgentCompatibilityMatrixResponse> {
+    return this.request<AgentCompatibilityMatrixResponse>('/agents/compatibility/matrix');
   }
 }
 

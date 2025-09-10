@@ -157,10 +157,10 @@
 
 
 
-/* Modern Agent details panel - 2x2 grid */
+/* Modern Agent details panel - 2x3 grid */
 .agent-details-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
   margin-top: 0.5rem;
 }
@@ -592,6 +592,34 @@
   min-width: 120px;
 }
 
+.agent-hardware {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  min-width: 150px;
+  max-width: 200px;
+}
+
+.hardware-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-models {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  min-width: 120px;
+  max-width: 180px;
+}
+
+.models-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-status {
   text-align: center;
 }
@@ -708,7 +736,7 @@
 /* Modern responsive design */
 @media (max-width: 1024px) {
   .agent-details-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 1rem;
   }
   
@@ -740,19 +768,40 @@
     font-size: 0.75rem;
   }
   
+  /* Hide less important columns on smaller screens */
   .agent-id, .agent-uptime, .agent-last-change {
     display: none;
   }
   
   .agents-table thead th:nth-child(1), 
-  .agents-table thead th:nth-child(5),
-  .agents-table thead th:nth-child(6) {
+  .agents-table thead th:nth-child(7),
+  .agents-table thead th:nth-child(8) {
     display: none;
   }
   
   .agents-table tbody td:nth-child(1),
-  .agents-table tbody td:nth-child(5),
-  .agents-table tbody td:nth-child(6) {
+  .agents-table tbody td:nth-child(7),
+  .agents-table tbody td:nth-child(8) {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .agent-details-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  /* Hide models column on very small screens */
+  .agent-models {
+    display: none;
+  }
+  
+  .agents-table thead th:nth-child(4) {
+    display: none;
+  }
+  
+  .agents-table tbody td:nth-child(4) {
     display: none;
   }
 }

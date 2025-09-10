@@ -17,6 +17,8 @@ from ruckus_common.models import (
     RegisteredAgentInfo,
     AgentStatusEnum,
     JobResult,
+    AgentCompatibility,
+    ExperimentCapabilityRequirements,
 )
 from ..api.v1.models import ExperimentResult
 
@@ -577,3 +579,177 @@ class JobManager:
         await self.process_next_job(job_info.agent_id)
         
         self.logger.info(f"Successfully cancelled job {job_id}")
+    
+    def _check_agent_compatibility(self, agent: RegisteredAgentInfo, experiment: ExperimentSpec) -> AgentCompatibility:
+        """Check if an agent can run an experiment based on static capability analysis.
+        
+        This performs compatibility checking using only the agent's registration data.
+        No agent communication or testing is performed - this is pure data analysis.
+        
+        Args:
+            agent: Registered agent with detected capabilities
+            experiment: Experiment specification with requirements
+            
+        Returns:
+            AgentCompatibility with can_run decision and detailed reasoning
+        """
+        self.logger.debug(f"Checking compatibility: agent {agent.agent_id} vs experiment {experiment.name}")
+        
+        # If no capability requirements specified, assume any agent can run it
+        if not experiment.capability_requirements:
+            return AgentCompatibility(
+                agent_id=agent.agent_id,
+                agent_name=agent.agent_name or agent.agent_id,
+                can_run=True,
+                available_capabilities=["basic_execution"],
+                warnings=["No capability requirements specified - assuming compatibility"]
+            )
+        
+        requirements = experiment.capability_requirements
+        
+        # Extract agent's reported capabilities from system_info
+        agent_system = agent.system_info
+        agent_gpus = agent_system.get('gpus', [])
+        agent_frameworks = agent_system.get('frameworks', [])
+        agent_models = agent_system.get('models', {})
+        
+        # Collect compatibility results
+        missing_requirements = []
+        available_capabilities = []
+        supported_features = []
+        warnings = []
+        hardware_summary = {}
+        framework_versions = {}
+        compatible_models = []
+        
+        # 1. Check GPU requirements (most common constraint)
+        if requirements.gpu_requirements:
+            gpu_req = requirements.gpu_requirements
+            
+            # Check minimum GPU count
+            if len(agent_gpus) < gpu_req.min_gpu_count:
+                missing_requirements.append(f"Need {gpu_req.min_gpu_count} GPUs, agent has {len(agent_gpus)}")
+            else:
+                available_capabilities.append("multi_gpu" if len(agent_gpus) > 1 else "gpu")
+            
+            # Check GPU memory requirements
+            if gpu_req.min_memory_mb and agent_gpus:
+                max_gpu_memory = max((gpu.get('memory_total_mb', 0) for gpu in agent_gpus), default=0)
+                if max_gpu_memory < gpu_req.min_memory_mb:
+                    missing_requirements.append(f"Need {gpu_req.min_memory_mb}MB GPU memory, max available: {max_gpu_memory}MB")
+                else:
+                    available_capabilities.append("high_memory_gpu")
+            
+            # Extract hardware summary for display
+            if agent_gpus:
+                gpu_names = [gpu.get('name', 'Unknown GPU') for gpu in agent_gpus]
+                gpu_memory = [f"{gpu.get('memory_total_mb', 0)/1024:.1f}GB" for gpu in agent_gpus]
+                hardware_summary["gpus"] = [f"{name} ({mem})" for name, mem in zip(gpu_names, gpu_memory)]
+        
+        # 2. Check model requirements (for inference experiments)
+        if requirements.model_requirements:
+            model_req = requirements.model_requirements
+            
+            # Check if agent has loaded models for model experiments
+            if isinstance(agent_models, dict) and len(agent_models) == 0:
+                missing_requirements.append("No models loaded - required for model experiments")
+            else:
+                available_capabilities.append("model_loading")
+                compatible_models = list(agent_models.keys())[:5] if isinstance(agent_models, dict) else []
+            
+            # Check framework requirements
+            if model_req.required_frameworks:
+                agent_framework_names = {fw.get('name') for fw in agent_frameworks if isinstance(fw, dict)}
+                required_framework_names = {fw.value for fw in model_req.required_frameworks}
+                
+                missing_frameworks = required_framework_names - agent_framework_names
+                if missing_frameworks:
+                    missing_requirements.append(f"Missing frameworks: {', '.join(missing_frameworks)}")
+                
+                # Extract framework versions
+                for fw in agent_frameworks:
+                    if isinstance(fw, dict) and fw.get('name') in required_framework_names:
+                        framework_versions[fw['name']] = fw.get('version', 'unknown')
+        
+        # 3. Check basic capability requirements
+        if requirements.required_capabilities:
+            for capability in requirements.required_capabilities:
+                if self._agent_has_capability(agent, capability):
+                    available_capabilities.append(capability)
+                else:
+                    missing_requirements.append(f"Missing capability: {capability}")
+        
+        # 4. Add optional features as supported features
+        if requirements.optional_metrics:
+            for metric in requirements.optional_metrics:
+                if self._agent_can_collect_metric(agent, metric):
+                    supported_features.append(f"metric_{metric}")
+        
+        # 5. Make final compatibility decision
+        can_run = len(missing_requirements) == 0
+        
+        if not can_run:
+            self.logger.debug(f"Agent {agent.agent_id} incompatible: {missing_requirements}")
+        else:
+            self.logger.debug(f"Agent {agent.agent_id} compatible with {len(available_capabilities)} capabilities")
+        
+        return AgentCompatibility(
+            agent_id=agent.agent_id,
+            agent_name=agent.agent_name or agent.agent_id,
+            can_run=can_run,
+            available_capabilities=available_capabilities,
+            missing_requirements=missing_requirements,
+            supported_features=supported_features,
+            warnings=warnings,
+            hardware_summary=hardware_summary,
+            framework_versions=framework_versions,
+            compatible_models=compatible_models
+        )
+    
+    def _agent_has_capability(self, agent: RegisteredAgentInfo, capability: str) -> bool:
+        """Check if agent has a specific capability based on registration data."""
+        system_info = agent.system_info
+        
+        # Simple capability detection based on system info
+        capability_checks = {
+            'gpu_monitoring': lambda: len(system_info.get('gpus', [])) > 0,
+            'model_loading': lambda: len(system_info.get('models', {})) > 0,
+            'memory_monitoring': lambda: True,  # Assume always available
+            'tokenization': lambda: any(
+                fw.get('name') in ['transformers', 'vllm'] 
+                for fw in system_info.get('frameworks', []) 
+                if isinstance(fw, dict)
+            ),
+        }
+        
+        if capability in capability_checks:
+            try:
+                return capability_checks[capability]()
+            except Exception:
+                return False
+        
+        # Fallback: check if capability is mentioned in system info
+        return capability.lower() in str(system_info).lower()
+    
+    def _agent_can_collect_metric(self, agent: RegisteredAgentInfo, metric: str) -> bool:
+        """Check if agent can collect a specific metric."""
+        # This is a simplified check - in practice you'd have more sophisticated metric detection
+        system_info = agent.system_info
+        
+        metric_capability_map = {
+            'memory_bandwidth': lambda: len(system_info.get('gpus', [])) > 0,
+            'flops_fp32': lambda: len(system_info.get('gpus', [])) > 0,
+            'flops_fp16': lambda: any(
+                gpu.get('tensor_cores') for gpu in system_info.get('gpus', [])
+            ),
+            'inference_time': lambda: len(system_info.get('models', {})) > 0,
+            'throughput': lambda: len(system_info.get('models', {})) > 0,
+        }
+        
+        if metric in metric_capability_map:
+            try:
+                return metric_capability_map[metric]()
+            except Exception:
+                return False
+        
+        return False

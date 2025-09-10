@@ -134,7 +134,10 @@ export interface AgentTableRow {
 
 // Experiment related types
 export const TaskType = {
-  LLM_GENERATION: "llm_generation"
+  LLM_GENERATION: "llm_generation",
+  GPU_BENCHMARK: "gpu_benchmark",
+  MEMORY_BENCHMARK: "memory_benchmark", 
+  COMPUTE_BENCHMARK: "compute_benchmark"
 } as const;
 
 export type TaskType = typeof TaskType[keyof typeof TaskType];
@@ -302,4 +305,49 @@ export interface ListExperimentResultsResponse {
 
 export interface GetExperimentResultResponse {
   result: ExperimentResult;
+}
+
+// Agent Capability Matching types
+export interface AgentCompatibility {
+  agent_id: string;
+  agent_name: string;
+  can_run: boolean;
+  available_capabilities: string[];
+  missing_requirements: string[];
+  supported_features: string[];
+  warnings: string[];
+  hardware_summary: Record<string, any>;
+  framework_versions: Record<string, string>;
+  compatible_models: string[];
+  estimated_queue_time_seconds?: number;
+  last_capability_check: string; // ISO timestamp
+}
+
+export interface CheckAgentCompatibilityRequest {
+  experiment_spec: ExperimentSpec;
+  agent_ids?: string[]; // Optional: filter specific agents
+}
+
+export interface CheckAgentCompatibilityResponse {
+  compatibility_results: AgentCompatibility[];
+  experiment_name: string;
+  total_agents_checked: number;
+  compatible_agents_count: number;
+  checked_at: string; // ISO timestamp
+}
+
+export interface AgentCompatibilityMatrixResponse {
+  agents: Record<string, {
+    agent_name: string;
+    experiment_compatibility: Record<string, {
+      compatible: boolean;
+      hardware_summary?: Record<string, any>;
+      available_capabilities?: string[];
+      missing_requirements?: string[];
+      warnings?: string[];
+    }>;
+  }>;
+  experiment_types: string[];
+  total_agents: number;
+  checked_at: string; // ISO timestamp
 }
