@@ -1,0 +1,240 @@
+/* Chart container styles */
+.chart-container {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1.5rem;
+}
+
+.chart-container h3 {
+  margin: 0 0 1rem 0;
+  color: #1f2937;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.chart-wrapper {
+  margin-bottom: 1rem;
+}
+
+/* Chart info and statistics */
+.chart-info {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+}
+
+.chart-description {
+  margin: 0 0 1rem 0;
+  color: #6b7280;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.chart-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stat-item {
+  background: #f3f4f6;
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #374151;
+  font-weight: 500;
+}
+
+/* Performance insights */
+.performance-insights {
+  margin-bottom: 1rem;
+}
+
+.performance-insights h4 {
+  margin: 0 0 0.5rem 0;
+  color: #374151;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.performance-insights ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.performance-insights li {
+  color: #059669;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Precision ranking */
+.precision-ranking {
+  margin-bottom: 1rem;
+}
+
+.precision-ranking h4 {
+  margin: 0 0 0.75rem 0;
+  color: #374151;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: #f9fafb;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+}
+
+.ranking-item .rank {
+  font-weight: 700;
+  color: #374151;
+  min-width: 2rem;
+}
+
+.ranking-item .precision {
+  font-weight: 600;
+  min-width: 3rem;
+}
+
+.ranking-item .efficiency {
+  font-size: 0.875rem;
+  color: #059669;
+  font-weight: 500;
+}
+
+.ranking-item .throughput {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-left: auto;
+}
+
+/* No data state */
+.no-data {
+  background: #fef3cd;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.no-data p {
+  margin: 0;
+  color: #92400e;
+  font-size: 0.875rem;
+}
+
+/* Recharts customizations */
+.recharts-tooltip-wrapper {
+  z-index: 1000;
+}
+
+.recharts-tooltip-cursor {
+  fill: rgba(59, 130, 246, 0.1);
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: #e5e7eb;
+  stroke-opacity: 0.7;
+}
+
+.recharts-legend-wrapper {
+  padding-top: 1rem !important;
+}
+
+/* Custom tooltip styles */
+.recharts-default-tooltip {
+  background: white !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+}
+
+.recharts-tooltip-label {
+  color: #1f2937 !important;
+  font-weight: 600 !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.recharts-tooltip-item {
+  color: #374151 !important;
+  font-size: 0.875rem !important;
+}
+
+/* Legend customizations */
+.recharts-legend-item {
+  margin-right: 1rem !important;
+}
+
+.recharts-legend-item-text {
+  color: #374151 !important;
+  font-size: 0.875rem !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .chart-container {
+    padding: 1rem;
+  }
+
+  .chart-stats {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .stat-item {
+    text-align: center;
+  }
+
+  .ranking-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ranking-item .throughput {
+    margin-left: 0;
+    margin-top: 0.25rem;
+  }
+}
+
+/* Chart type specific styles */
+.radial-chart-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.pie-chart-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Animation effects */
+.chart-container {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

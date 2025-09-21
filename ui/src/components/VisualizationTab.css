@@ -1,0 +1,246 @@
+.visualization-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 500px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.visualization-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 8px 8px 0 0;
+}
+
+.header-info h2 {
+  margin: 0 0 0.5rem 0;
+  color: #1f2937;
+  font-size: 1.5rem;
+}
+
+.experiment-info {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.experiment-info span {
+  font-size: 0.875rem;
+  color: #6b7280;
+  background: #e5e7eb;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.visualization-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 280px;
+  padding: 1.5rem;
+  border-right: 1px solid #e5e7eb;
+  background: #f9fafb;
+  overflow-y: auto;
+}
+
+.chart-area {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+/* Chart Type Selector */
+.chart-type-selector h3 {
+  margin: 0 0 1rem 0;
+  color: #374151;
+  font-size: 1.125rem;
+}
+
+.chart-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.chart-type-btn {
+  background: white;
+  border: 1px solid #d1d5db;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.875rem;
+  color: #374151;
+  transition: all 0.2s ease;
+}
+
+.chart-type-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.chart-type-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+/* Export Panel */
+.export-panel h4 {
+  margin: 0 0 1rem 0;
+  color: #374151;
+  font-size: 1rem;
+}
+
+.export-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.export-btn {
+  background: white;
+  border: 1px solid #d1d5db;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #374151;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-status {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-align: center;
+  font-style: italic;
+}
+
+/* Chart Area */
+.chart-placeholder {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.chart-placeholder h4 {
+  margin: 0 0 1.5rem 0;
+  color: #1f2937;
+  font-size: 1.25rem;
+}
+
+.data-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+  text-align: left;
+}
+
+.data-item {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.data-name {
+  display: block;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.25rem;
+}
+
+.data-value {
+  display: block;
+  font-size: 1.125rem;
+  color: #1f2937;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+}
+
+.chart-coming-soon {
+  color: #6b7280;
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+.no-data {
+  background: #fef3cd;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.no-data p {
+  margin: 0;
+  color: #92400e;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .visualization-content {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .chart-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .chart-type-btn {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .experiment-info {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
