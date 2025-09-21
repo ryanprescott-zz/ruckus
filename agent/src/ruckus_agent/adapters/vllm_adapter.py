@@ -2,7 +2,7 @@
 
 import logging
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from pathlib import Path
 from .base import ModelAdapter
 from ..utils.model_discovery import ModelDiscovery
@@ -71,10 +71,17 @@ class VLLMAdapter(ModelAdapter):
                 logger.debug(f"Model loaded with vLLM engine at {self.model_path}")
                 
             except ImportError as e:
-                raise ImportError(f"vLLM not available or failed to import: {e}")
+                raise ImportError(
+                    f"❌ vLLM framework is not installed or failed to import: {e}. "
+                    f"Please install vLLM with: pip install vllm"
+                )
             except Exception as e:
                 # Re-raise with more context
-                raise RuntimeError(f"Failed to initialize vLLM engine for {model_name}: {e}")
+                raise RuntimeError(
+                    f"❌ Failed to initialize vLLM engine for model '{model_name}': {e}. "
+                    f"This could be due to insufficient GPU memory, incompatible model format, "
+                    f"or vLLM configuration issues. Please check the model requirements and system resources."
+                )
                 
         except Exception as e:
             logger.error(f"VLLMAdapter failed to load model {model_name}: {e}")
@@ -290,3 +297,100 @@ class VLLMAdapter(ModelAdapter):
                 logger.debug(f"Could not retrieve engine stats: {e}")
         
         return metrics
+
+    async def generate_with_conversation(self, conversation: List[Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate with full conversation capture for LLM tasks.
+
+        Args:
+            conversation: List of PromptMessage objects containing the conversation
+            parameters: Generation parameters (temperature, max_tokens, etc.)
+
+        Returns:
+            Dict containing:
+                - conversation: Full conversation including assistant response
+                - input_tokens: Number of input tokens
+                - output_tokens: Number of output tokens
+                - total_tokens: Total token count
+        """
+        if not self.engine:
+            raise RuntimeError("No model loaded. Call load_model() first.")
+
+        logger.debug(f"VLLMAdapter generating conversation with {len(conversation)} messages")
+
+        try:
+            # Convert conversation to prompt format expected by vLLM
+            # For now, we'll concatenate all messages into a single prompt
+            # TODO: Use proper chat template when available
+            prompt_parts = []
+            input_messages = []
+
+            for msg in conversation:
+                # Handle both dict format and PromptMessage objects
+                if hasattr(msg, 'role') and hasattr(msg, 'content'):
+                    role = msg.role.value if hasattr(msg.role, 'value') else msg.role
+                    content = msg.content
+                else:
+                    role = msg.get('role', 'user')
+                    content = msg.get('content', '')
+
+                # Store original message
+                input_messages.append({"role": role, "content": content})
+
+                # Build prompt (simple concatenation for now)
+                if role == "system":
+                    prompt_parts.append(f"System: {content}")
+                elif role == "user":
+                    prompt_parts.append(f"User: {content}")
+                elif role == "assistant":
+                    prompt_parts.append(f"Assistant: {content}")
+
+            # Add assistant prompt to get response
+            prompt_parts.append("Assistant:")
+            full_prompt = "\n".join(prompt_parts)
+
+            logger.debug(f"Generated prompt for vLLM (length: {len(full_prompt)})")
+
+            # Count input tokens by summing individual message tokens
+            input_tokens = 0
+            try:
+                for msg_data in input_messages:
+                    msg_tokens = await self.count_tokens(msg_data["content"])
+                    input_tokens += msg_tokens
+            except Exception as e:
+                logger.warning(f"Failed to count input tokens: {e}, using word count fallback")
+                input_tokens = sum(len(msg["content"].split()) for msg in input_messages)
+
+            # Generate response using existing generate method
+            response_text = await self.generate(full_prompt, parameters)
+
+            # Count output tokens
+            try:
+                output_tokens = await self.count_tokens(response_text)
+            except Exception as e:
+                logger.warning(f"Failed to count output tokens: {e}, using word count fallback")
+                output_tokens = len(response_text.split())
+
+            # Build complete conversation including assistant response
+            complete_conversation = input_messages.copy()
+            complete_conversation.append({
+                "role": "assistant",
+                "content": response_text.strip()
+            })
+
+            # Calculate total tokens
+            total_tokens = input_tokens + output_tokens
+
+            result = {
+                "conversation": complete_conversation,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "model_response": response_text.strip()  # Quick access to just the response
+            }
+
+            logger.debug(f"Conversation generation completed: {input_tokens} input + {output_tokens} output = {total_tokens} total tokens")
+            return result
+
+        except Exception as e:
+            logger.error(f"VLLMAdapter conversation generation failed: {e}")
+            raise

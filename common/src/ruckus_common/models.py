@@ -603,11 +603,14 @@ class SingleRunResult(BaseModel):
     
     # Performance metrics for this specific run
     metrics: Dict[str, Any] = Field(default_factory=dict)
-    
+
     # Model loading metrics (only present for cold start runs)
     model_load_time_seconds: Optional[float] = Field(default=None, ge=0)
     model_load_memory_mb: Optional[float] = Field(default=None, ge=0)
-    
+
+    # Task-specific output (e.g., conversation data for LLM tasks)
+    output: Optional[Any] = None
+
     # Error information (if this run failed)
     error: Optional[str] = None
     error_type: Optional[str] = None

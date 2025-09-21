@@ -294,6 +294,15 @@ export interface JobTableRow {
   jobInfo: JobInfo; // Full job data
 }
 
+// LLM Conversation results
+export interface LLMConversationResult {
+  conversation: PromptMessage[]; // Full conversation including model response
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  model_response?: string; // Quick access to just the model's response
+}
+
 // Results-related types
 export interface ExperimentResult {
   job_id: string;
@@ -303,7 +312,7 @@ export interface ExperimentResult {
   started_at: string; // ISO timestamp
   completed_at?: string; // ISO timestamp
   duration_seconds?: number;
-  output?: any;
+  output?: any; // For LLM tasks, this should be LLMConversationResult
   metrics: Record<string, any>;
   model_actual?: string;
   framework_version?: string;
@@ -316,6 +325,8 @@ export interface ExperimentResult {
 
 export interface ExperimentResultTableRow {
   experiment_id: string;
+  experiment_name: string;
+  experiment_type: string;
   job_id: string;
   agent_id: string;
   status: string; // Status enum as string for display

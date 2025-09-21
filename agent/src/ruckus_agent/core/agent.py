@@ -154,8 +154,9 @@ class Agent:
         
         try:
             # Execute with timeout
-            await asyncio.wait_for(self._execute_job_impl(job, start_time), timeout=timeout_seconds)
-            
+            job_result = await asyncio.wait_for(self._execute_job_impl(job, start_time), timeout=timeout_seconds)
+            return job_result
+
         except asyncio.TimeoutError:
             logger.error(f"Job {job.job_id} timed out after {timeout_seconds} seconds")
             
@@ -177,9 +178,10 @@ class Agent:
                 result=timeout_result,
                 result_type=JobResultType.EXECUTION_FAILURE
             )
-            
+
             # Perform cleanup
             await self._cleanup_failed_job(job, asyncio.TimeoutError("Job execution timeout"))
+            return timeout_result
             
         except Exception as e:
             logger.error(f"Unexpected error in job {job.job_id}: {e}")
@@ -459,55 +461,203 @@ class Agent:
             )
 
     async def _execute_llm_task(self, job: JobRequest, run_id: int, is_cold_start: bool, run_start: datetime) -> SingleRunResult:
-        """Execute LLM generation task."""
+        """Execute LLM generation task with real inference."""
+        from ruckus_common.models import LLMGenerationParams, PromptTemplate, PromptMessage
+
         model_load_time = None
         model_load_memory = None
+
+        # Get model adapter for the task
+        model_adapter = await self._get_model_adapter_for_task(job)
 
         # Cold start: Load model and track loading metrics
         if is_cold_start:
             await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_model_loading")
             load_start = datetime.now(timezone.utc)
 
-            # TODO: Implement actual model loading with VRAM tracking
-            await asyncio.sleep(0.5)  # Simulate model loading time
-            model_load_time = (datetime.now(timezone.utc) - load_start).total_seconds()
-            model_load_memory = 8192.0  # TODO: Get actual VRAM usage
+            try:
+                # Load model with any provided parameters
+                load_params = job.parameters.get('load_params', {})
+                await model_adapter.load_model(job.model, **load_params)
 
-            logger.info(f"Cold start model load completed in {model_load_time:.2f}s")
+                model_load_time = (datetime.now(timezone.utc) - load_start).total_seconds()
+                model_load_memory = 8192.0  # TODO: Get actual VRAM usage from adapter
+
+                logger.info(f"Cold start model load completed in {model_load_time:.2f}s")
+            except Exception as e:
+                logger.error(f"Model loading failed: {e}")
+                raise
+
+        # Parse LLM generation parameters from task config
+        task_config = job.task_config
+        if 'prompt_template' not in task_config:
+            raise ValueError("LLM task requires 'prompt_template' in task_config")
+
+        prompt_template_data = task_config['prompt_template']
+
+        # Convert dict messages to PromptMessage objects if needed
+        messages = prompt_template_data.get('messages', [])
+        conversation = []
+        for msg in messages:
+            if isinstance(msg, dict):
+                # Convert dict to PromptMessage-like object for adapter
+                conversation.append(msg)
+            else:
+                # Already a PromptMessage object
+                conversation.append({
+                    "role": msg.role.value if hasattr(msg.role, 'value') else msg.role,
+                    "content": msg.content
+                })
 
         # Inference execution
         await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_inference")
 
-        # Yield control to allow other operations
-        await asyncio.sleep(0)
+        inference_start = datetime.now(timezone.utc)
 
-        # TODO: Implement actual inference with metrics collection
-        await asyncio.sleep(0.2)  # Simulate inference time
+        try:
+            # Check if adapter supports conversation capture
+            if not hasattr(model_adapter, 'generate_with_conversation'):
+                adapter_type = type(model_adapter).__name__
+                raise AttributeError(
+                    f"❌ {adapter_type} does not support conversation capture. "
+                    f"The {job.framework} framework adapter needs to implement 'generate_with_conversation()' method "
+                    f"for LLM conversation tracking. Please use a framework adapter that supports conversation capture "
+                    f"(e.g., vLLM, Transformers) or update the {adapter_type} implementation."
+                )
 
-        # Yield control again after inference
-        await asyncio.sleep(0)
+            # Use real inference with conversation capture
+            conversation_result = await model_adapter.generate_with_conversation(
+                conversation=conversation,
+                parameters=job.parameters
+            )
 
-        # Collect performance metrics
-        metrics = {
-            "inference_time_seconds": 0.15 + (run_id * 0.01),  # Simulate slight variation
-            "throughput_tokens_per_sec": 120.0 - (run_id * 2),
-            "memory_usage_mb": 6400.0 + (run_id * 50),
-            "gpu_utilization_percent": 85.0 + (run_id * 1.5)
-        }
+            inference_end = datetime.now(timezone.utc)
+            inference_time = (inference_end - inference_start).total_seconds()
 
-        run_end = datetime.now(timezone.utc)
-        duration = (run_end - run_start).total_seconds()
+            # Extract metrics from conversation result
+            metrics = {
+                "inference_time_seconds": inference_time,
+                "input_tokens": conversation_result.get("input_tokens", 0),
+                "output_tokens": conversation_result.get("output_tokens", 0),
+                "total_tokens": conversation_result.get("total_tokens", 0),
+                "throughput_tokens_per_sec": conversation_result.get("output_tokens", 0) / max(inference_time, 0.001)
+            }
 
-        return SingleRunResult(
-            run_id=run_id,
-            is_cold_start=is_cold_start,
-            started_at=run_start,
-            completed_at=run_end,
-            duration_seconds=duration,
-            metrics=metrics,
-            model_load_time_seconds=model_load_time,
-            model_load_memory_mb=model_load_memory
-        )
+            # Add model-specific metrics if available
+            if hasattr(model_adapter, 'get_metrics'):
+                try:
+                    adapter_metrics = await model_adapter.get_metrics()
+                    metrics.update(adapter_metrics)
+                except Exception as e:
+                    logger.warning(f"Failed to get adapter metrics: {e}")
+
+            run_end = datetime.now(timezone.utc)
+            duration = (run_end - run_start).total_seconds()
+
+            logger.info(f"LLM inference completed: {metrics['output_tokens']} tokens in {inference_time:.2f}s")
+
+            return SingleRunResult(
+                run_id=run_id,
+                is_cold_start=is_cold_start,
+                started_at=run_start,
+                completed_at=run_end,
+                duration_seconds=duration,
+                metrics=metrics,
+                model_load_time_seconds=model_load_time,
+                model_load_memory_mb=model_load_memory,
+                output=conversation_result  # Store full conversation result
+            )
+
+        except Exception as e:
+            logger.error(f"LLM inference failed: {e}")
+
+            # Enhance error messages for common issues
+            error_msg = str(e)
+            if "ImportError" in error_msg or "No module named" in error_msg:
+                enhanced_msg = f"🔧 Dependency Missing: {error_msg}"
+            elif "AttributeError" in error_msg and "generate_with_conversation" in error_msg:
+                enhanced_msg = f"🔧 Feature Not Supported: {error_msg}"
+            elif "CUDA" in error_msg or "GPU" in error_msg:
+                enhanced_msg = f"🔧 Hardware Issue: {error_msg}"
+            elif "memory" in error_msg.lower() or "OOM" in error_msg:
+                enhanced_msg = f"🔧 Memory Issue: {error_msg}"
+            else:
+                enhanced_msg = f"🔧 Inference Error: {error_msg}"
+
+            # Create a new exception with enhanced message but preserve the original type
+            enhanced_exception = type(e)(enhanced_msg)
+            enhanced_exception.__cause__ = e
+            raise enhanced_exception
+
+        finally:
+            # Only unload model if this was a cold start and we're not doing more runs
+            # For multi-run jobs, keep model loaded for warm runs
+            if is_cold_start and job.runs_per_job == 1:
+                try:
+                    await model_adapter.unload_model()
+                    logger.debug("Model unloaded after single run job")
+                except Exception as e:
+                    logger.warning(f"Model unload failed: {e}")
+
+    async def _get_model_adapter_for_task(self, job: JobRequest):
+        """Get the appropriate model adapter for a given task.
+
+        Args:
+            job: The job request containing model and framework info
+
+        Returns:
+            Model adapter instance for the task
+        """
+        framework = job.framework.lower() if job.framework else "vllm"
+
+        try:
+            if framework == "vllm":
+                try:
+                    from ..adapters.vllm_adapter import VLLMAdapter
+                    return VLLMAdapter()
+                except ImportError as e:
+                    raise ImportError(
+                        f"❌ vLLM framework not available: {e}. "
+                        f"Please install vLLM with: pip install vllm"
+                    )
+            elif framework == "transformers":
+                try:
+                    from ..adapters.transformers_adapter import TransformersAdapter
+                    return TransformersAdapter()
+                except ImportError as e:
+                    raise ImportError(
+                        f"❌ Transformers framework not available: {e}. "
+                        f"Please install transformers with: pip install transformers"
+                    )
+            elif framework == "pytorch":
+                try:
+                    from ..adapters.pytorch_adapter import PyTorchAdapter
+                    return PyTorchAdapter()
+                except ImportError as e:
+                    raise ImportError(
+                        f"❌ PyTorch framework not available: {e}. "
+                        f"Please install PyTorch with: pip install torch"
+                    )
+            else:
+                # Default to vLLM for LLM tasks with clear messaging
+                logger.warning(f"Unknown framework '{framework}', defaulting to vLLM")
+                try:
+                    from ..adapters.vllm_adapter import VLLMAdapter
+                    return VLLMAdapter()
+                except ImportError as e:
+                    raise ImportError(
+                        f"❌ Requested framework '{framework}' is unknown and fallback vLLM is not available: {e}. "
+                        f"Supported frameworks: vllm, transformers, pytorch. "
+                        f"Please install the required framework or specify a supported one."
+                    )
+        except ImportError:
+            # Re-raise ImportError with our enhanced message
+            raise
+        except Exception as e:
+            raise RuntimeError(
+                f"❌ Failed to initialize {framework} adapter: {e}. "
+                f"Please check that the framework is properly installed and configured."
+            )
 
     async def _execute_gpu_benchmark_task(self, job: JobRequest, run_id: int, is_cold_start: bool, run_start: datetime) -> SingleRunResult:
         """Execute GPU benchmark task using existing GPUBenchmark utility."""
@@ -749,6 +899,7 @@ class Agent:
             started_at=job_start_time,
             completed_at=single_result.completed_at,
             duration_seconds=single_result.duration_seconds,
+            output=single_result.output,
             metrics=single_result.metrics,
             model_actual=job.model,
             framework_version="vllm-0.2.0",  # TODO: Get actual version

@@ -210,6 +210,17 @@
   font-size: 0.6875rem;
 }
 
+/* Action buttons */
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.action-buttons .btn {
+  white-space: nowrap;
+}
+
 /* Details panel */
 .details-panel {
   background: var(--bg-secondary);
@@ -239,6 +250,18 @@
   margin-bottom: 0.75rem;
   padding-bottom: 0.375rem;
   border-bottom: 1px solid var(--border-primary);
+}
+
+.details-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Visualization container */
+.visualization-container {
+  height: 100%;
+  overflow: hidden;
 }
 
 .details-header h3 {
