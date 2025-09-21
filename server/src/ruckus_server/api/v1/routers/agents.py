@@ -81,13 +81,20 @@ async def unregister_agent(request_data: UnregisterAgentRequest, request: Reques
         HTTPException: 404 if agent not found, 503 if server not initialized, 500 for other errors
     """
     agent_manager = request.app.state.agent_manager
+    job_manager = request.app.state.job_manager
+
     if not agent_manager:
         raise HTTPException(status_code=503, detail="Agent manager not initialized")
-    
+    if not job_manager:
+        raise HTTPException(status_code=503, detail="Job manager not initialized")
+
     try:
         # Call the RuckusServer unregister_agent method
         unregistration_result = await agent_manager.unregister_agent(request_data.agent_id)
-        
+
+        # Clean up job manager references for this agent
+        await job_manager.cleanup_agent_references(request_data.agent_id)
+
         # Return success response
         return UnregisterAgentResponse(
             agent_id=unregistration_result["agent_id"],

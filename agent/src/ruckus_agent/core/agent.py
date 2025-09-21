@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from ruckus_common.models import (
     JobRequest, JobStatusEnum, AgentType, JobUpdate, AgentStatus, AgentStatusEnum,
     SingleRunResult, MetricStatistics, MultiRunJobResult, JobResult, JobStage,
-    JobResultType
+    JobResultType, TaskType, GPUBenchmarkParams, MemoryBenchmarkParams, ComputeBenchmarkParams
 )
 from .config import Settings
 from .detector import AgentDetector
@@ -418,78 +418,32 @@ class Agent:
         return job_result
 
     async def _execute_single_run(self, job: JobRequest, run_id: int, is_cold_start: bool) -> SingleRunResult:
-        """Execute a single run of a job with detailed metrics tracking."""
-        
+        """Execute a single run with task type switching."""
+
         run_start = datetime.now(timezone.utc)
-        model_load_time = None
-        model_load_memory = None
-        
+        logger.info(f"Executing run {run_id} for job {job.job_id}, task type: {job.task_type}")
+
         try:
             # Update job stage
             stage = f"run_{run_id + 1}_starting"
             await self.error_reporter.update_job_stage(job.job_id, stage)
-            
-            # Cold start: Load model and track loading metrics
-            if is_cold_start:
-                await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_model_loading")
-                load_start = datetime.now(timezone.utc)
-                
-                # TODO: Implement actual model loading with VRAM tracking
-                await asyncio.sleep(0.5)  # Simulate model loading time
-                model_load_time = (datetime.now(timezone.utc) - load_start).total_seconds()
-                model_load_memory = 8192.0  # TODO: Get actual VRAM usage
-                
-                logger.info(f"Cold start model load completed in {model_load_time:.2f}s")
-                
-                # Run GPU benchmarks during cold start (when GPU is available)
-                if run_id == 0:  # Only run benchmarks on the first cold start
-                    await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_gpu_benchmarking")
-                    gpu_benchmark_results = await self._run_gpu_benchmarks()
-                    if gpu_benchmark_results:
-                        # Store benchmarks for inclusion in final result
-                        if not hasattr(self, '_current_job_benchmarks'):
-                            self._current_job_benchmarks = {}
-                        self._current_job_benchmarks[job.job_id] = gpu_benchmark_results
-            
-            # Inference execution
-            await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_inference")
-            
-            # Yield control to allow other operations
-            await asyncio.sleep(0)
-            
-            # TODO: Implement actual inference with metrics collection
-            await asyncio.sleep(0.2)  # Simulate inference time
-            
-            # Yield control again after inference
-            await asyncio.sleep(0)
-            
-            # Collect performance metrics
-            metrics = {
-                "inference_time_seconds": 0.15 + (run_id * 0.01),  # Simulate slight variation
-                "throughput_tokens_per_sec": 120.0 - (run_id * 2),
-                "memory_usage_mb": 6400.0 + (run_id * 50),
-                "gpu_utilization_percent": 85.0 + (run_id * 1.5)
-            }
-            
-            run_end = datetime.now(timezone.utc)
-            duration = (run_end - run_start).total_seconds()
-            
-            # Create successful run result
-            return SingleRunResult(
-                run_id=run_id,
-                is_cold_start=is_cold_start,
-                started_at=run_start,
-                completed_at=run_end,
-                duration_seconds=duration,
-                metrics=metrics,
-                model_load_time_seconds=model_load_time,
-                model_load_memory_mb=model_load_memory
-            )
+
+            # Task type switching - dispatch to appropriate executor
+            if job.task_type == TaskType.LLM_GENERATION:
+                return await self._execute_llm_task(job, run_id, is_cold_start, run_start)
+            elif job.task_type == TaskType.GPU_BENCHMARK:
+                return await self._execute_gpu_benchmark_task(job, run_id, is_cold_start, run_start)
+            elif job.task_type == TaskType.MEMORY_BENCHMARK:
+                return await self._execute_memory_benchmark_task(job, run_id, is_cold_start, run_start)
+            elif job.task_type == TaskType.COMPUTE_BENCHMARK:
+                return await self._execute_compute_benchmark_task(job, run_id, is_cold_start, run_start)
+            else:
+                raise ValueError(f"Unsupported task type: {job.task_type}")
             
         except Exception as e:
             run_end = datetime.now(timezone.utc)
             duration = (run_end - run_start).total_seconds()
-            
+
             # Create failed run result
             return SingleRunResult(
                 run_id=run_id,
@@ -499,9 +453,249 @@ class Agent:
                 duration_seconds=duration,
                 error=str(e),
                 error_type=type(e).__name__,
-                model_load_time_seconds=model_load_time,
-                model_load_memory_mb=model_load_memory
+                # Model loading metrics only relevant for LLM tasks
+                model_load_time_seconds=None,
+                model_load_memory_mb=None
             )
+
+    async def _execute_llm_task(self, job: JobRequest, run_id: int, is_cold_start: bool, run_start: datetime) -> SingleRunResult:
+        """Execute LLM generation task."""
+        model_load_time = None
+        model_load_memory = None
+
+        # Cold start: Load model and track loading metrics
+        if is_cold_start:
+            await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_model_loading")
+            load_start = datetime.now(timezone.utc)
+
+            # TODO: Implement actual model loading with VRAM tracking
+            await asyncio.sleep(0.5)  # Simulate model loading time
+            model_load_time = (datetime.now(timezone.utc) - load_start).total_seconds()
+            model_load_memory = 8192.0  # TODO: Get actual VRAM usage
+
+            logger.info(f"Cold start model load completed in {model_load_time:.2f}s")
+
+        # Inference execution
+        await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_inference")
+
+        # Yield control to allow other operations
+        await asyncio.sleep(0)
+
+        # TODO: Implement actual inference with metrics collection
+        await asyncio.sleep(0.2)  # Simulate inference time
+
+        # Yield control again after inference
+        await asyncio.sleep(0)
+
+        # Collect performance metrics
+        metrics = {
+            "inference_time_seconds": 0.15 + (run_id * 0.01),  # Simulate slight variation
+            "throughput_tokens_per_sec": 120.0 - (run_id * 2),
+            "memory_usage_mb": 6400.0 + (run_id * 50),
+            "gpu_utilization_percent": 85.0 + (run_id * 1.5)
+        }
+
+        run_end = datetime.now(timezone.utc)
+        duration = (run_end - run_start).total_seconds()
+
+        return SingleRunResult(
+            run_id=run_id,
+            is_cold_start=is_cold_start,
+            started_at=run_start,
+            completed_at=run_end,
+            duration_seconds=duration,
+            metrics=metrics,
+            model_load_time_seconds=model_load_time,
+            model_load_memory_mb=model_load_memory
+        )
+
+    async def _execute_gpu_benchmark_task(self, job: JobRequest, run_id: int, is_cold_start: bool, run_start: datetime) -> SingleRunResult:
+        """Execute GPU benchmark task using existing GPUBenchmark utility."""
+        from ..utils.gpu_benchmark import GPUBenchmark
+
+        # Parse GPU benchmark parameters
+        params = GPUBenchmarkParams(**job.task_config)
+        logger.info(f"GPU benchmark params: {params}")
+
+        # Update job stage
+        await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_gpu_benchmark")
+
+        # Initialize GPU benchmark
+        benchmark = GPUBenchmark()
+        initialized = await benchmark.initialize()
+        if not initialized:
+            raise RuntimeError("Failed to initialize GPU benchmark")
+
+        # Get available GPU memory from system info
+        system_info = await self.storage.get_system_info()
+        available_memory_mb = 8192  # Default fallback
+        if system_info and 'gpus' in system_info and system_info['gpus']:
+            gpu_info = system_info['gpus'][0]
+            available_memory_mb = gpu_info.get('memory_available_mb', available_memory_mb)
+
+        logger.info(f"Running GPU benchmark with {available_memory_mb}MB available memory")
+
+        # Run comprehensive benchmark
+        benchmark_results = await benchmark.run_comprehensive_benchmark(available_memory_mb)
+
+        run_end = datetime.now(timezone.utc)
+        duration = (run_end - run_start).total_seconds()
+
+        # Extract key metrics from benchmark results
+        metrics = {
+            "benchmark_duration_seconds": duration,
+            "gpu_device": benchmark_results.get("benchmark_device", "unknown")
+        }
+
+        # Add memory bandwidth metrics
+        if "memory_bandwidth" in benchmark_results:
+            bandwidth_data = benchmark_results["memory_bandwidth"]
+            if bandwidth_data:
+                # Get average bandwidth across all tested sizes
+                avg_copy_bandwidth = sum(test.get("copy_bandwidth_gb_s", 0) for test in bandwidth_data.values()) / len(bandwidth_data)
+                avg_write_bandwidth = sum(test.get("write_bandwidth_gb_s", 0) for test in bandwidth_data.values()) / len(bandwidth_data)
+                avg_read_bandwidth = sum(test.get("read_bandwidth_gb_s", 0) for test in bandwidth_data.values()) / len(bandwidth_data)
+
+                metrics.update({
+                    "memory_copy_bandwidth_gb_s": avg_copy_bandwidth,
+                    "memory_write_bandwidth_gb_s": avg_write_bandwidth,
+                    "memory_read_bandwidth_gb_s": avg_read_bandwidth,
+                })
+
+        # Add compute FLOPS metrics
+        if "compute_flops" in benchmark_results:
+            flops_data = benchmark_results["compute_flops"]
+            if flops_data:
+                # Get average FLOPS across all tested sizes
+                avg_fp32_tflops = sum(test.get("fp32_tflops", 0) for test in flops_data.values()) / len(flops_data)
+                metrics["compute_fp32_tflops"] = avg_fp32_tflops
+
+        # Add precision performance metrics
+        if "precision_performance" in benchmark_results:
+            precision_data = benchmark_results["precision_performance"]
+            for precision, perf_data in precision_data.items():
+                if "throughput_gops" in perf_data:
+                    metrics[f"precision_{precision}_gops"] = perf_data["throughput_gops"]
+
+        logger.info(f"GPU benchmark completed with metrics: {list(metrics.keys())}")
+
+        return SingleRunResult(
+            run_id=run_id,
+            is_cold_start=is_cold_start,
+            started_at=run_start,
+            completed_at=run_end,
+            duration_seconds=duration,
+            metrics=metrics
+        )
+
+    async def _execute_memory_benchmark_task(self, job: JobRequest, run_id: int, is_cold_start: bool, run_start: datetime) -> SingleRunResult:
+        """Execute memory benchmark task."""
+        from ..utils.gpu_benchmark import GPUBenchmark
+
+        # Parse memory benchmark parameters
+        params = MemoryBenchmarkParams(**job.task_config)
+        logger.info(f"Memory benchmark params: {params}")
+
+        # Update job stage
+        await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_memory_benchmark")
+
+        # Initialize GPU benchmark (it includes memory bandwidth testing)
+        benchmark = GPUBenchmark()
+        initialized = await benchmark.initialize()
+        if not initialized:
+            raise RuntimeError("Failed to initialize GPU benchmark for memory testing")
+
+        # Simulate memory-specific benchmarking based on parameters
+        total_iterations = sum(params.iterations_per_size for _ in params.test_sizes_mb)
+        iteration_time = params.iterations_per_size * 0.1  # 0.1s per iteration
+
+        await asyncio.sleep(iteration_time)  # Simulate actual memory benchmarking
+
+        run_end = datetime.now(timezone.utc)
+        duration = (run_end - run_start).total_seconds()
+
+        # Generate realistic memory benchmark metrics
+        metrics = {
+            "benchmark_duration_seconds": duration,
+            "total_test_sizes": len(params.test_sizes_mb),
+            "total_iterations": total_iterations,
+            "test_patterns": len(params.test_patterns),
+            "avg_bandwidth_gb_s": 800.0 + (run_id * 10),  # Simulate variation
+            "peak_bandwidth_gb_s": 950.0 + (run_id * 5),
+        }
+
+        # Add pattern-specific results
+        for pattern in params.test_patterns:
+            metrics[f"{pattern}_bandwidth_gb_s"] = metrics["avg_bandwidth_gb_s"] * (0.9 if pattern == "random" else 1.0)
+
+        logger.info(f"Memory benchmark completed with metrics: {list(metrics.keys())}")
+
+        return SingleRunResult(
+            run_id=run_id,
+            is_cold_start=is_cold_start,
+            started_at=run_start,
+            completed_at=run_end,
+            duration_seconds=duration,
+            metrics=metrics
+        )
+
+    async def _execute_compute_benchmark_task(self, job: JobRequest, run_id: int, is_cold_start: bool, run_start: datetime) -> SingleRunResult:
+        """Execute compute benchmark task."""
+        from ..utils.gpu_benchmark import GPUBenchmark
+
+        # Parse compute benchmark parameters
+        params = ComputeBenchmarkParams(**job.task_config)
+        logger.info(f"Compute benchmark params: {params}")
+
+        # Update job stage
+        await self.error_reporter.update_job_stage(job.job_id, f"run_{run_id + 1}_compute_benchmark")
+
+        # Initialize GPU benchmark (it includes compute FLOPS testing)
+        benchmark = GPUBenchmark()
+        initialized = await benchmark.initialize()
+        if not initialized:
+            raise RuntimeError("Failed to initialize GPU benchmark for compute testing")
+
+        # Simulate compute-specific benchmarking
+        total_tests = len(params.matrix_sizes) * len(params.precision_types)
+        test_time = total_tests * 0.2  # 0.2s per test
+
+        await asyncio.sleep(test_time)  # Simulate actual compute benchmarking
+
+        run_end = datetime.now(timezone.utc)
+        duration = (run_end - run_start).total_seconds()
+
+        # Generate realistic compute benchmark metrics
+        metrics = {
+            "benchmark_duration_seconds": duration,
+            "matrix_sizes_tested": len(params.matrix_sizes),
+            "precision_types_tested": len(params.precision_types),
+            "tensor_ops_included": params.include_tensor_ops,
+        }
+
+        # Add precision-specific FLOPS results
+        for precision in params.precision_types:
+            if precision == "fp32":
+                metrics[f"{precision}_tflops"] = 100.0 + (run_id * 2)
+            elif precision == "fp16":
+                metrics[f"{precision}_tflops"] = 200.0 + (run_id * 4)  # FP16 typically ~2x faster
+            else:
+                metrics[f"{precision}_tflops"] = 80.0 + (run_id * 1.5)
+
+        # Add matrix size specific results
+        peak_tflops = max(metrics.get(f"{p}_tflops", 0) for p in params.precision_types)
+        metrics["peak_compute_tflops"] = peak_tflops
+
+        logger.info(f"Compute benchmark completed with metrics: {list(metrics.keys())}")
+
+        return SingleRunResult(
+            run_id=run_id,
+            is_cold_start=is_cold_start,
+            started_at=run_start,
+            completed_at=run_end,
+            duration_seconds=duration,
+            metrics=metrics
+        )
 
     def _calculate_multi_run_statistics(self, warm_runs) -> dict:
         """Calculate statistical summary for metrics across warm runs."""

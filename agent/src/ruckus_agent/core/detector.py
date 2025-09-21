@@ -146,38 +146,44 @@ class AgentDetector:
         except (ImportError, Exception) as e:
             logger.debug(f"pynvml detection failed: {e}, trying nvidia-smi fallback")
             
-            # Fallback to nvidia-smi
+            # Fallback to nvidia-smi if available
             try:
-                result = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=index,name,uuid,memory.total,memory.free",
-                     "--format=csv,noheader,nounits"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
+                import shutil
+                if shutil.which("nvidia-smi"):
+                    result = subprocess.run(
+                        ["nvidia-smi", "--query-gpu=index,name,uuid,memory.total,memory.free",
+                         "--format=csv,noheader,nounits"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
 
-                if result.returncode == 0:
-                    for line in result.stdout.strip().split('\n'):
-                        parts = line.split(', ')
-                        if len(parts) >= 5:
-                            # Get tensor core and precision info by name
-                            tensor_info = await self._detect_tensor_capabilities_by_name(parts[1])
-                            
-                            gpu_info = GPUDetectionResult(
-                                index=int(parts[0]),
-                                name=parts[1],
-                                uuid=parts[2],
-                                vendor=GPUVendor.NVIDIA,
-                                memory_total_mb=int(parts[3]),
-                                memory_available_mb=int(parts[4]),
-                                tensor_cores=tensor_info["tensor_cores"],
-                                supported_precisions=tensor_info["supported_precisions"],
-                                detection_method=DetectionMethod.NVIDIA_SMI
-                            )
-                            gpus.append(gpu_info)
-                            
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            parts = line.split(', ')
+                            if len(parts) >= 5:
+                                # Get tensor core and precision info by name
+                                tensor_info = await self._detect_tensor_capabilities_by_name(parts[1])
+
+                                gpu_info = GPUDetectionResult(
+                                    index=int(parts[0]),
+                                    name=parts[1],
+                                    uuid=parts[2],
+                                    vendor=GPUVendor.NVIDIA,
+                                    memory_total_mb=int(parts[3]),
+                                    memory_available_mb=int(parts[4]),
+                                    tensor_cores=tensor_info["tensor_cores"],
+                                    supported_precisions=tensor_info["supported_precisions"],
+                                    detection_method=DetectionMethod.NVIDIA_SMI
+                                )
+                                gpus.append(gpu_info)
+                else:
+                    logger.debug("nvidia-smi not found - skipping NVIDIA GPU detection fallback")
+
+            except FileNotFoundError:
+                logger.debug("nvidia-smi command not found - skipping NVIDIA GPU detection")
             except Exception as e2:
-                logger.debug(f"nvidia-smi fallback also failed: {e2}")
+                logger.debug(f"nvidia-smi fallback failed: {e2}")
         
         # Try PyTorch for any GPU (NVIDIA, AMD, Intel, Apple Silicon, etc.)
         if not gpus:

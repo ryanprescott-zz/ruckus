@@ -11,9 +11,12 @@ import './JobsTab.css';
 
 // Configuration
 const DEFAULT_POLLING_INTERVAL = 5000; // 5 seconds
+const MIN_POLLING_INTERVAL = 1000; // 1 second minimum to avoid flooding logs
 const getPollingInterval = (): number => {
   const envInterval = import.meta.env.VITE_JOBS_POLLING_INTERVAL;
-  return envInterval ? parseInt(envInterval, 10) * 1000 : DEFAULT_POLLING_INTERVAL;
+  const interval = envInterval ? parseInt(envInterval, 10) * 1000 : DEFAULT_POLLING_INTERVAL;
+  // Ensure minimum 1 second interval to prevent log flooding
+  return Math.max(interval, MIN_POLLING_INTERVAL);
 };
 
 const JobsTab: React.FC = () => {
@@ -22,19 +25,28 @@ const JobsTab: React.FC = () => {
   const [selectedJob, setSelectedJob] = useState<JobInfo | null>(null);
   const [selectedExperiment, setSelectedExperiment] = useState<ExperimentSpec | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<RegisteredAgentInfo | null>(null);
-  
+
+  // Loading states for job details
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [experimentError, setExperimentError] = useState<string | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<keyof JobTableRow>('updated');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-  
+
   // New Job state
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentSpec[]>([]);
   const [agents, setAgents] = useState<RegisteredAgentInfo[]>([]);
   const [newJobExperimentId, setNewJobExperimentId] = useState<string>('');
   const [newJobAgentId, setNewJobAgentId] = useState<string>('');
+
+  // Resizable splitter state
+  const [splitPercentage, setSplitPercentage] = useState(60); // Default 60% for jobs, 40% for details
+  const [isDragging, setIsDragging] = useState(false);
 
   // Polling interval
   const pollingInterval = getPollingInterval();
@@ -49,7 +61,7 @@ const JobsTab: React.FC = () => {
   const fetchJobsData = useCallback(async () => {
     try {
       const response = await apiClient.listJobs();
-      
+
       // Flatten jobs from all agents into a single array
       const allJobs: JobInfo[] = [];
       Object.values(response.jobs).forEach(agentJobs => {
@@ -68,6 +80,9 @@ const JobsTab: React.FC = () => {
       }));
 
       setJobs(tableRows);
+
+      // Note: Selected job update logic moved to separate useEffect to avoid polling restart
+
       setError(null);
     } catch (err) {
       console.error('Error fetching jobs:', err);
@@ -75,7 +90,7 @@ const JobsTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // Remove selectedJob dependency to prevent polling restart on job selection
 
   // Fetch experiments for New Job dropdown
   const fetchExperiments = useCallback(async () => {
@@ -99,25 +114,60 @@ const JobsTab: React.FC = () => {
 
   // Fetch job details (experiment and agent info)
   const fetchJobDetails = useCallback(async (job: JobInfo) => {
+    setDetailsLoading(true);
+    setExperimentError(null);
+    setAgentError(null);
+    setSelectedExperiment(null);
+    setSelectedAgent(null);
+
     try {
+      // Fetch experiment and agent details separately to handle individual failures
+      const experimentPromise = apiClient.getExperiment(job.experiment_id).catch(err => {
+        console.error('Error fetching experiment details:', err);
+        const errorMsg = `Failed to load experiment details: ${err.message || err}`;
+        setExperimentError(errorMsg);
+        return null;
+      });
+
+      const agentPromise = apiClient.getAgent(job.agent_id).catch(err => {
+        console.error('Error fetching agent details:', err);
+        let errorMsg;
+        if (err.message && err.message.includes('404')) {
+          errorMsg = `Agent ${job.agent_id} was deregistered after this job was created`;
+        } else {
+          errorMsg = `Unable to load agent details: ${err.message || err}`;
+        }
+        setAgentError(errorMsg);
+        return null;
+      });
+
       const [experimentResponse, agentResponse] = await Promise.all([
-        apiClient.getExperiment(job.experiment_id),
-        apiClient.getAgent(job.agent_id)
+        experimentPromise,
+        agentPromise
       ]);
-      
-      setSelectedExperiment(experimentResponse.experiment);
-      setSelectedAgent(agentResponse.agent);
+
+      if (experimentResponse) {
+        setSelectedExperiment(experimentResponse.experiment);
+      }
+      if (agentResponse) {
+        setSelectedAgent(agentResponse.agent);
+      }
     } catch (err) {
-      console.error('Error fetching job details:', err);
-      setSelectedExperiment(null);
-      setSelectedAgent(null);
+      console.error('Unexpected error fetching job details:', err);
+      // This catch is for any unexpected errors not handled above
+    } finally {
+      setDetailsLoading(false);
     }
   }, []);
 
   // Handle row selection
   const handleRowClick = (job: JobTableRow) => {
     if (isCreatingJob) return; // Don't change selection when creating job
-    
+
+    // Clear previous details states
+    setExperimentError(null);
+    setAgentError(null);
+
     setSelectedJob(job.jobInfo);
     fetchJobDetails(job.jobInfo);
   };
@@ -248,6 +298,12 @@ const JobsTab: React.FC = () => {
       } else {
         console.log('❌ agent.system_info.models is not available or not an object');
       }
+
+      // Special case: Hardware benchmarks don't require specific models
+      if (!modelMatches && (expectedModel === 'hardware-test' || expectedModel === '' || !expectedModel)) {
+        console.log('🔧 HARDWARE BENCHMARK detected - skipping model requirement');
+        modelMatches = true; // Hardware benchmarks can run on any agent with the right framework
+      }
       
       // Check frameworks in system_info.frameworks (array of framework objects)
       if (agent.system_info?.frameworks && Array.isArray(agent.system_info.frameworks)) {
@@ -358,15 +414,89 @@ const JobsTab: React.FC = () => {
     setSelectedAgent(null);
   };
 
-  // Initial data fetch and polling setup
+  // Resizable splitter handlers
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return;
+
+    const container = document.querySelector('.jobs-tab');
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const mouseX = e.clientX - containerRect.left;
+    const containerWidth = containerRect.width;
+
+    // Calculate new split percentage, with bounds checking
+    let newPercentage = (mouseX / containerWidth) * 100;
+    newPercentage = Math.max(20, Math.min(80, newPercentage)); // Limit between 20% and 80%
+
+    setSplitPercentage(newPercentage);
+  }, [isDragging]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Add global mouse event listeners when dragging
   useEffect(() => {
-    fetchJobsData();
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  // Update selected job when jobs list changes (separate from polling to avoid restart)
+  useEffect(() => {
+    if (selectedJob && jobs.length > 0) {
+      const updatedSelectedJobRow = jobs.find(row => row.job_id === selectedJob.job_id);
+      if (updatedSelectedJobRow) {
+        const updatedSelectedJob = updatedSelectedJobRow.jobInfo;
+        // Only refresh details if the status actually changed
+        if (updatedSelectedJob.status.status !== selectedJob.status.status) {
+          console.log(`Job ${selectedJob.job_id} status changed from ${selectedJob.status.status} to ${updatedSelectedJob.status.status}`);
+          // Refresh job details only when status changes, not on every poll
+          setTimeout(() => fetchJobDetails(updatedSelectedJob), 100);
+        }
+        setSelectedJob(updatedSelectedJob);
+      } else {
+        // Selected job no longer exists, clear selection
+        console.log(`Selected job ${selectedJob.job_id} no longer exists`);
+        setSelectedJob(null);
+        setSelectedExperiment(null);
+        setSelectedAgent(null);
+      }
+    }
+  }, [jobs, selectedJob, fetchJobDetails]);
+
+  // Note: Job details will be refreshed automatically when job status changes
+  // This provides a good balance between responsiveness and not flooding the logs
+
+  // Initial data fetch (experiments and agents don't need frequent polling)
+  useEffect(() => {
     fetchExperiments();
     fetchAgents();
+  }, []); // Only fetch once on component mount
+
+  // Jobs polling setup (only jobs need frequent updates)
+  useEffect(() => {
+    fetchJobsData();
 
     const interval = setInterval(fetchJobsData, pollingInterval);
     return () => clearInterval(interval);
-  }, [fetchJobsData, fetchExperiments, fetchAgents, pollingInterval]);
+  }, [fetchJobsData, pollingInterval]);
 
   return (
     <div className="jobs-tab">
@@ -377,132 +507,308 @@ const JobsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Jobs table section */}
-      <div className="jobs-section">
-        <div className="section-header">
-          <h2>Jobs</h2>
-          <button 
-            className="new-job-button"
-            onClick={handleNewJob}
-            disabled={isCreatingJob}
-          >
-            New Job
-          </button>
+      {/* Main content area with proper flex layout */}
+      <div style={{
+        display: 'flex',
+        flexDirection: selectedJob || isCreatingJob ? 'row' : 'column',
+        height: '100%',
+        minHeight: 0,
+        position: 'relative'
+      }}>
+        {/* Jobs table section */}
+        <div className="jobs-section" style={{
+          flex: (selectedJob || isCreatingJob) ? `0 0 ${splitPercentage}%` : '1',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          marginRight: (selectedJob || isCreatingJob) ? '0' : '0'
+        }}>
+          <div className="section-header">
+            <h2>Jobs</h2>
+            <button
+              className="new-job-button"
+              onClick={handleNewJob}
+              disabled={isCreatingJob}
+            >
+              New Job
+            </button>
+          </div>
+
+          {loading && <div className="loading">Loading jobs...</div>}
+          {error && <div className="error">{error}</div>}
+
+          {!loading && !error && (
+            <div className="table-container" style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto'
+            }}>
+              <table className="jobs-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort('job_id')} className="sortable">
+                      Job ID {sortColumn === 'job_id' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('experiment_id')} className="sortable">
+                      Experiment ID {sortColumn === 'experiment_id' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('agent_id')} className="sortable">
+                      Agent ID {sortColumn === 'agent_id' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('status')} className="sortable">
+                      Status {sortColumn === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('updated')} className="sortable">
+                      Updated {sortColumn === 'updated' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th>Cancel</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedJobs.map((job) => (
+                    <tr
+                      key={job.job_id}
+                      onClick={() => handleRowClick(job)}
+                      className={selectedJob?.job_id === job.job_id ? 'selected' : ''}
+                    >
+                      <td>{job.job_id}</td>
+                      <td>{job.experiment_id}</td>
+                      <td>{job.agent_id}</td>
+                      <td>
+                        <span className={`status status-${job.status.toLowerCase()}`}>
+                          {job.status}
+                        </span>
+                      </td>
+                      <td>{job.updated}</td>
+                      <td>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={(e) => handleCancelJob(job.job_id, e)}
+                          disabled={!canCancelJob(job.status)}
+                        >
+                          Cancel
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
-        {loading && <div className="loading">Loading jobs...</div>}
-        {error && <div className="error">{error}</div>}
+        {/* Resizable splitter */}
+        {(selectedJob || isCreatingJob) && (
+          <div
+            className="splitter"
+            onMouseDown={handleSplitterMouseDown}
+            style={{
+              width: '4px',
+              backgroundColor: isDragging ? '#007bff' : '#ddd',
+              cursor: 'col-resize',
+              flexShrink: 0,
+              transition: isDragging ? 'none' : 'background-color 0.2s ease',
+              borderRadius: '2px',
+              margin: '0 2px',
+              position: 'relative',
+              zIndex: 10
+            }}
+            onMouseEnter={(e) => {
+              if (!isDragging) {
+                e.currentTarget.style.backgroundColor = '#007bff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isDragging) {
+                e.currentTarget.style.backgroundColor = '#ddd';
+              }
+            }}
+            title="Drag to resize panels"
+          />
+        )}
 
-        {!loading && !error && (
-          <div className="table-container">
-            <table className="jobs-table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort('job_id')} className="sortable">
-                    Job ID {sortColumn === 'job_id' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('experiment_id')} className="sortable">
-                    Experiment ID {sortColumn === 'experiment_id' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('agent_id')} className="sortable">
-                    Agent ID {sortColumn === 'agent_id' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('status')} className="sortable">
-                    Status {sortColumn === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('updated')} className="sortable">
-                    Updated {sortColumn === 'updated' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th>Cancel</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedJobs.map((job) => (
-                  <tr
-                    key={job.job_id}
-                    onClick={() => handleRowClick(job)}
-                    className={selectedJob?.job_id === job.job_id ? 'selected' : ''}
+        {/* Details panel */}
+        {isCreatingJob && (
+          <div className="details-panel" style={{
+            flex: `0 0 ${100 - splitPercentage}%`,
+            minHeight: 0,
+            overflowY: 'auto'
+          }}>
+            <div className="new-job-form">
+              <div className="form-header">
+                <h3>Create New Job</h3>
+                <div className="form-actions">
+                  <button className="btn btn-secondary" onClick={handleCancelNewJob}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSubmitJob}
+                    style={{
+                      backgroundColor: '#28a745',
+                      borderColor: '#28a745',
+                      fontWeight: 'bold',
+                      fontSize: '16px',
+                      padding: '12px 24px',
+                      boxShadow: '0 4px 8px rgba(40, 167, 69, 0.3)',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#218838';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 12px rgba(40, 167, 69, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#28a745';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(40, 167, 69, 0.3)';
+                    }}
                   >
-                    <td>{job.job_id}</td>
-                    <td>{job.experiment_id}</td>
-                    <td>{job.agent_id}</td>
-                    <td>
-                      <span className={`status status-${job.status.toLowerCase()}`}>
-                        {job.status}
-                      </span>
-                    </td>
-                    <td>{job.updated}</td>
-                    <td>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={(e) => handleCancelJob(job.job_id, e)}
-                        disabled={!canCancelJob(job.status)}
-                      >
-                        Cancel
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    🚀 Submit Job
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-content">
+                <div className="form-section">
+                  <div className="form-field">
+                    <label>Experiment:</label>
+                    <select
+                      value={newJobExperimentId}
+                      onChange={(e) => handleExperimentSelect(e.target.value)}
+                    >
+                      <option value="">Select an experiment...</option>
+                      {experiments.map(exp => (
+                        <option key={exp.id} value={exp.id}>{exp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-field">
+                    <label>Agent:</label>
+                    <select
+                      value={newJobAgentId}
+                      onChange={(e) => handleAgentSelect(e.target.value)}
+                      disabled={!newJobExperimentId}
+                    >
+                      <option value="">Select an agent...</option>
+                      {getFilteredAgents().map(agent => (
+                        <option key={agent.agent_id} value={agent.agent_id}>
+                          {agent.agent_id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Show selected experiment/agent details in New Job mode */}
+              {(selectedExperiment || selectedAgent) && (
+                <div className="job-details">
+                  <div className="details-grid">
+                    {selectedExperiment && (
+                      <div className="experiment-details">
+                        <div className="details-header">
+                          <h3>Experiment Details</h3>
+                          <span className="details-id">{selectedExperiment.id}</span>
+                        </div>
+                        <div className="details-content">
+                          <textarea
+                            className="details-textarea"
+                            value={formatAgentDetails('Experiment', selectedExperiment)}
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedAgent && (
+                      <div className="agent-details">
+                        <div className="details-header">
+                          <h3>Agent Details</h3>
+                          <span className="details-id">{selectedAgent.agent_id}</span>
+                        </div>
+                        <div className="details-content">
+                          <textarea
+                            className="details-textarea"
+                            value={formatAgentDetails('Agent', selectedAgent)}
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </div>
 
-      {/* Details panel */}
-      <div className="details-panel">
-        {isCreatingJob ? (
-          // New Job form
-          <div className="new-job-form">
-            <div className="form-header">
-              <h3>Create New Job</h3>
-              <div className="form-actions">
-                <button className="btn btn-secondary" onClick={handleCancelNewJob}>
-                  Cancel
-                </button>
-                <button className="btn btn-primary" onClick={handleSubmitJob}>
-                  Submit
-                </button>
-              </div>
-            </div>
-            
-            <div className="form-content">
-              <div className="form-section">
-                <div className="form-field">
-                  <label>Experiment:</label>
-                  <select 
-                    value={newJobExperimentId} 
-                    onChange={(e) => handleExperimentSelect(e.target.value)}
-                  >
-                    <option value="">Select an experiment...</option>
-                    {experiments.map(exp => (
-                      <option key={exp.id} value={exp.id}>{exp.name}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div className="form-field">
-                  <label>Agent:</label>
-                  <select 
-                    value={newJobAgentId} 
-                    onChange={(e) => handleAgentSelect(e.target.value)}
-                    disabled={!newJobExperimentId}
-                  >
-                    <option value="">Select an agent...</option>
-                    {getFilteredAgents().map(agent => (
-                      <option key={agent.agent_id} value={agent.agent_id}>
-                        {agent.agent_id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          // Job details view
-          selectedJob && (
+        {/* Job details panel - shown alongside jobs table when selected */}
+        {selectedJob && (
+          <div className="details-panel" style={{
+            flex: `0 0 ${100 - splitPercentage}%`,
+            minHeight: 0,
+            overflowY: 'auto'
+          }}>
             <div className="job-details">
+              {/* Job Status Summary */}
+              <div className="job-status-summary" style={{
+                marginBottom: '20px',
+                padding: '15px',
+                backgroundColor: 'var(--bg-secondary, #f9f9f9)',
+                borderRadius: '8px',
+                border: selectedJob.status.status === 'failed'
+                  ? '2px solid var(--error-color, #dc3545)'
+                  : '1px solid var(--border-color, #ddd)',
+                position: 'relative'
+              }}>
+                <button
+                  onClick={() => setSelectedJob(null)}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)',
+                    padding: '5px',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--bg-tertiary, #e5e7eb)';
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                  }}
+                  title="Close job details"
+                >
+                  ✕
+                </button>
+                <h3>Job Status: {selectedJob.status.status.toUpperCase()}</h3>
+                <p><strong>Job ID:</strong> {selectedJob.job_id}</p>
+                <p><strong>Updated:</strong> {formatTimestamp(selectedJob.status.timestamp)}</p>
+                {selectedJob.status.message && (
+                  <p><strong>Status Message:</strong> {selectedJob.status.message}</p>
+                )}
+                {selectedJob.status.status === 'failed' && (
+                  <div style={{
+                    marginTop: '15px',
+                    padding: '12px',
+                    backgroundColor: 'var(--error-bg, #f8d7da)',
+                    color: 'var(--error-text, #721c24)',
+                    borderRadius: '6px',
+                    fontWeight: 'bold'
+                  }}>
+                    ⚠️ This job failed. Check the <strong>Results tab</strong> for detailed error information.
+                  </div>
+                )}
+              </div>
               <div className="details-grid">
                 <div className="experiment-details">
                   <div className="details-header">
@@ -512,12 +818,17 @@ const JobsTab: React.FC = () => {
                   <div className="details-content">
                     <textarea
                       className="details-textarea"
-                      value={selectedExperiment ? formatAgentDetails('Experiment', selectedExperiment) : 'Loading...'}
+                      value={
+                        experimentError ? `Unable to load experiment details: ${experimentError}` :
+                        selectedExperiment ? formatAgentDetails('Experiment', selectedExperiment) :
+                        detailsLoading ? 'Loading experiment details...' :
+                        'No experiment data available'
+                      }
                       readOnly
                     />
                   </div>
                 </div>
-                
+
                 <div className="agent-details">
                   <div className="details-header">
                     <h3>Agent Details</h3>
@@ -526,51 +837,18 @@ const JobsTab: React.FC = () => {
                   <div className="details-content">
                     <textarea
                       className="details-textarea"
-                      value={selectedAgent ? formatAgentDetails('Agent', selectedAgent) : 'Loading...'}
+                      value={
+                        agentError ?
+                          `${agentError}\n\nThis is normal if the agent was removed from the cluster after the job completed.\n\nJob Information:\n• Agent ID: ${selectedJob.agent_id}\n• Job Status: ${selectedJob.status.status.toUpperCase()}\n• Last Updated: ${formatTimestamp(selectedJob.status.timestamp)}\n• Experiment: ${selectedJob.experiment_id}` :
+                        selectedAgent ? formatAgentDetails('Agent', selectedAgent) :
+                        detailsLoading ? 'Loading agent details...' :
+                        'No agent data available'
+                      }
                       readOnly
                     />
                   </div>
                 </div>
               </div>
-            </div>
-          )
-        )}
-        
-        {/* Show selected experiment/agent details in New Job mode */}
-        {isCreatingJob && (selectedExperiment || selectedAgent) && (
-          <div className="job-details">
-            <div className="details-grid">
-              {selectedExperiment && (
-                <div className="experiment-details">
-                  <div className="details-header">
-                    <h3>Experiment Details</h3>
-                    <span className="details-id">{selectedExperiment.id}</span>
-                  </div>
-                  <div className="details-content">
-                    <textarea
-                      className="details-textarea"
-                      value={formatAgentDetails('Experiment', selectedExperiment)}
-                      readOnly
-                    />
-                  </div>
-                </div>
-              )}
-              
-              {selectedAgent && (
-                <div className="agent-details">
-                  <div className="details-header">
-                    <h3>Agent Details</h3>
-                    <span className="details-id">{selectedAgent.agent_id}</span>
-                  </div>
-                  <div className="details-content">
-                    <textarea
-                      className="details-textarea"
-                      value={formatAgentDetails('Agent', selectedAgent)}
-                      readOnly
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}

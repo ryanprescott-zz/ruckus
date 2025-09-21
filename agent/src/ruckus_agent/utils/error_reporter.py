@@ -44,22 +44,28 @@ class SystemMetricsCollector:
     
     @staticmethod
     async def _capture_gpu_metrics(snapshot: SystemMetricsSnapshot) -> None:
-        """Capture GPU metrics using nvidia-smi."""
+        """Capture GPU metrics using nvidia-smi if available."""
         try:
+            # Check if nvidia-smi is available first
+            import shutil
+            if not shutil.which("nvidia-smi"):
+                logger.debug("nvidia-smi not found - skipping NVIDIA GPU metrics capture")
+                return
+
             # Run nvidia-smi with detailed query
             cmd = [
                 "nvidia-smi",
                 "--query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
                 "--format=csv,noheader,nounits"
             ]
-            
+
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode == 0:
                 lines = stdout.decode().strip().split('\n')
                 for line in lines:
@@ -72,21 +78,23 @@ class SystemMetricsCollector:
                             gpu_util = float(parts[2]) if parts[2] != 'N/A' else 0.0
                             temp = float(parts[3]) if parts[3] != 'N/A' else 0.0
                             power = float(parts[4]) if parts[4] != 'N/A' else 0.0
-                            
+
                             snapshot.gpu_memory_used_mb.append(memory_used)
                             snapshot.gpu_memory_total_mb.append(memory_total)
                             snapshot.gpu_utilization_percent.append(gpu_util)
                             snapshot.gpu_temperature_c.append(temp)
                             snapshot.gpu_power_draw_w.append(power)
-                            
+
                         except (ValueError, IndexError) as e:
                             logger.warning(f"Failed to parse nvidia-smi line '{line}': {e}")
-                            
+
             else:
-                logger.warning(f"nvidia-smi failed: {stderr.decode()}")
-                
+                logger.debug(f"nvidia-smi returned non-zero exit code: {stderr.decode()}")
+
+        except FileNotFoundError:
+            logger.debug("nvidia-smi command not found - no NVIDIA GPU metrics captured")
         except Exception as e:
-            logger.error(f"Failed to capture GPU metrics: {e}")
+            logger.debug(f"Failed to capture GPU metrics: {e}")
     
     @staticmethod
     async def _capture_system_metrics(snapshot: SystemMetricsSnapshot) -> None:
@@ -300,20 +308,27 @@ class ErrorReporter:
         return "unknown_error"
     
     async def _capture_nvidia_smi_full(self) -> Optional[str]:
-        """Capture full nvidia-smi output for diagnostics."""
+        """Capture full nvidia-smi output for diagnostics if available."""
         try:
+            # Check if nvidia-smi is available first
+            import shutil
+            if not shutil.which("nvidia-smi"):
+                return "nvidia-smi not available (no NVIDIA GPUs detected)"
+
             result = await asyncio.create_subprocess_exec(
                 "nvidia-smi",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode == 0:
                 return stdout.decode()
             else:
                 return f"nvidia-smi failed: {stderr.decode()}"
-                
+
+        except FileNotFoundError:
+            return "nvidia-smi command not found (no NVIDIA drivers installed)"
         except Exception as e:
             return f"Failed to run nvidia-smi: {e}"
     

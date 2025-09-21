@@ -199,7 +199,7 @@ class JobManager:
     
     async def _poll_job_status(self, job_id: str, agent_id: str):
         """Poll job status periodically.
-        
+
         Args:
             job_id: The job ID to poll status for
             agent_id: The agent ID running the job
@@ -207,12 +207,23 @@ class JobManager:
         while self._running:
             try:
                 await asyncio.sleep(self.settings.job_status_polling_interval)
-                
+
                 if not self._running:
                     break
-                
+
+                # Check if this task is still in the polling_tasks dictionary
+                # If it's been removed, the job is complete/cancelled and we should stop
+                if job_id not in self.polling_tasks:
+                    self.logger.debug(f"Job {job_id} no longer in polling tasks - stopping polling")
+                    break
+
                 await self.process_job_status(job_id, agent_id)
-                
+
+                # Check again after processing status in case the job completed
+                if job_id not in self.polling_tasks:
+                    self.logger.debug(f"Job {job_id} completed during status check - stopping polling")
+                    break
+
             except asyncio.CancelledError:
                 self.logger.debug(f"Polling cancelled for job {job_id}")
                 break
@@ -222,7 +233,7 @@ class JobManager:
     
     async def process_job_status(self, job_id: str, agent_id: str):
         """Process the status of a running job.
-        
+
         Args:
             job_id: The job ID to check status for
             agent_id: The agent ID running the job
@@ -231,7 +242,14 @@ class JobManager:
             # Get agent info
             agent_info = await self.storage.get_agent(agent_id)
             if not agent_info:
-                self.logger.error(f"Agent {agent_id} not found")
+                self.logger.warning(f"Agent {agent_id} not found - likely deregistered. Stopping polling for job {job_id}")
+                # Cancel polling for this job since the agent no longer exists
+                if job_id in self.polling_tasks:
+                    task = self.polling_tasks[job_id]
+                    if not task.done():
+                        task.cancel()
+                    del self.polling_tasks[job_id]
+                    self.logger.debug(f"Cancelled polling for job {job_id} - agent no longer exists")
                 return
             
             # Get job status from agent
@@ -251,12 +269,15 @@ class JobManager:
             # Get current job info
             job_info = await self.storage.get_running_job(agent_id)
             if not job_info or job_info.job_id != job_id:
-                # Job might have already been processed
-                self.logger.warning(f"Job {job_id} is not the current running job for agent {agent_id}")
-                # Cancel polling for this job
+                # Job might have already been processed or completed
+                self.logger.info(f"Job {job_id} is not the current running job for agent {agent_id} - likely completed or cancelled. Stopping polling.")
+                # Cancel polling for this job since it's no longer running
                 if job_id in self.polling_tasks:
-                    self.polling_tasks[job_id].cancel()
+                    task = self.polling_tasks[job_id]
+                    if not task.done():
+                        task.cancel()
                     del self.polling_tasks[job_id]
+                    self.logger.debug(f"Stopped polling for completed/cancelled job {job_id}")
                 return
             
             # Update job info with new status
@@ -267,11 +288,26 @@ class JobManager:
                 # Move to failed jobs
                 await self.storage.add_failed_job(agent_id, job_info)
                 await self.storage.clear_running_job(agent_id)
-                
+
                 # Cancel polling
                 if job_id in self.polling_tasks:
+                    task = self.polling_tasks[job_id]
+                    if not task.done():
+                        self.logger.info(f"Cancelling polling task for job {job_id}")
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
                     del self.polling_tasks[job_id]
-                
+                    self.logger.debug(f"Removed polling task for job {job_id} from tracking")
+
+                # Process results for failed jobs too (they contain error information)
+                try:
+                    await self.process_job_results(job_id, agent_id)
+                except Exception as e:
+                    self.logger.error(f"Failed to process results for failed job {job_id}: {e}")
+
                 # Process next queued job
                 await self.process_next_job(agent_id)
                 
@@ -279,11 +315,20 @@ class JobManager:
                 # Move to completed jobs
                 await self.storage.add_completed_job(agent_id, job_info)
                 await self.storage.clear_running_job(agent_id)
-                
+
                 # Cancel polling
                 if job_id in self.polling_tasks:
+                    task = self.polling_tasks[job_id]
+                    if not task.done():
+                        self.logger.info(f"Cancelling polling task for job {job_id}")
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
                     del self.polling_tasks[job_id]
-                
+                    self.logger.debug(f"Removed polling task for job {job_id} from tracking")
+
                 # Process results
                 await self.process_job_results(job_id, agent_id)
                 
@@ -347,8 +392,8 @@ class JobManager:
             self.logger.error(f"Error processing next job for agent {agent_id}: {e}")
     
     async def process_job_results(self, job_id: str, agent_id: str):
-        """Process and store results for a completed job.
-        
+        """Process and store results for a completed or failed job.
+
         Args:
             job_id: The job ID to get results for
             agent_id: The agent ID that ran the job
@@ -358,17 +403,27 @@ class JobManager:
             agent_info = await self.storage.get_agent(agent_id)
             if not agent_info:
                 raise ValueError(f"Agent {agent_id} does not exist")
-            
-            # Get job info
-            completed_jobs = await self.storage.get_completed_jobs(agent_id)
+
+            # Get job info - check both completed and failed jobs
             job_info = None
+
+            # Check completed jobs first
+            completed_jobs = await self.storage.get_completed_jobs(agent_id)
             for job in completed_jobs:
                 if job.job_id == job_id:
                     job_info = job
                     break
-            
+
+            # If not found in completed, check failed jobs
             if not job_info:
-                raise ValueError(f"Job {job_id} not found in completed jobs")
+                failed_jobs = await self.storage.get_failed_jobs(agent_id)
+                for job in failed_jobs:
+                    if job.job_id == job_id:
+                        job_info = job
+                        break
+
+            if not job_info:
+                raise ValueError(f"Job {job_id} not found in completed or failed jobs")
             
             # Get results from agent
             try:
@@ -403,7 +458,78 @@ class JobManager:
                 
         except Exception as e:
             self.logger.error(f"Error processing job results: {e}")
-    
+
+    async def cleanup_agent_references(self, agent_id: str):
+        """Clean up all job manager references for a deregistered agent.
+
+        This method removes:
+        - Active polling tasks
+        - Queued jobs
+        - Running jobs
+        - Completed jobs
+        - Failed jobs
+
+        Args:
+            agent_id: The ID of the agent to clean up
+        """
+        try:
+            self.logger.info(f"Cleaning up job manager references for agent {agent_id}")
+
+            # Cancel any active polling tasks for this agent
+            # Note: polling_tasks are keyed by job_id, not agent_id, so we need to find jobs for this agent
+            tasks_to_cancel = []
+
+            # Get all jobs for this agent to find their job_ids
+            all_jobs = []
+            running_job = await self.storage.get_running_job(agent_id)
+            if running_job:
+                all_jobs.append(running_job)
+
+            queued_jobs = await self.storage.get_queued_jobs(agent_id)
+            all_jobs.extend(queued_jobs)
+
+            # Find and cancel polling tasks for this agent's jobs
+            for job in all_jobs:
+                if job.job_id in self.polling_tasks:
+                    tasks_to_cancel.append(job.job_id)
+
+            for job_id in tasks_to_cancel:
+                task = self.polling_tasks[job_id]
+                if not task.done():
+                    self.logger.info(f"Cancelling polling task for job {job_id} (agent {agent_id})")
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                del self.polling_tasks[job_id]
+
+            if tasks_to_cancel:
+                self.logger.info(f"Cancelled {len(tasks_to_cancel)} polling tasks for agent {agent_id}")
+
+            # Clear running job
+            await self.storage.clear_running_job(agent_id)
+
+            # Clear all queued jobs
+            if queued_jobs:
+                self.logger.info(f"Removing {len(queued_jobs)} queued jobs for agent {agent_id}")
+                for job in queued_jobs:
+                    await self.storage.remove_queued_job(agent_id, job.job_id)
+
+            # Note: We intentionally keep completed and failed jobs for historical data
+            # They contain valuable benchmark results and error information
+            completed_jobs = await self.storage.get_completed_jobs(agent_id)
+            failed_jobs = await self.storage.get_failed_jobs(agent_id)
+
+            if completed_jobs or failed_jobs:
+                self.logger.info(f"Agent {agent_id} has {len(completed_jobs)} completed and {len(failed_jobs)} failed jobs that will be preserved for historical data")
+
+            self.logger.info(f"Successfully cleaned up all references for agent {agent_id}")
+
+        except Exception as e:
+            self.logger.error(f"Error cleaning up agent references for {agent_id}: {e}")
+            # Don't re-raise - we want deregistration to succeed even if cleanup partially fails
+
     async def _store_job_by_status(self, job_info: JobInfo):
         """Store a job based on its status.
         

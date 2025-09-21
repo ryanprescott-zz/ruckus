@@ -99,7 +99,8 @@ class GPUBenchmark:
     
     async def benchmark_memory_bandwidth(self, available_memory_mb: int) -> Dict:
         """Benchmark memory bandwidth with tensor copy operations."""
-        logger.info("Starting memory bandwidth benchmark")
+        logger.info("Starting memory bandwidth benchmark with DIVISION BY ZERO PROTECTION")
+        print(f"DEBUG: Memory bandwidth benchmark starting with {available_memory_mb}MB available")
         
         tensor_sizes = self._calculate_tensor_sizes(available_memory_mb)
         bandwidth_results = {}
@@ -137,94 +138,189 @@ class GPUBenchmark:
         # Create source tensor on CPU
         cpu_tensor = self.torch.randn(rows, cols, dtype=self.torch.float32)
         tensor_size_bytes = cpu_tensor.numel() * 4  # 4 bytes per float32
-        
+
         # Warm up
         for _ in range(3):
             gpu_tensor = cpu_tensor.to(self.device)
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
-        # Benchmark CPU -> GPU transfer
+
+        # Adaptive benchmarking - ensure minimum duration
+        min_duration = 0.01  # Minimum 10ms duration
         num_iterations = max(10, 1000 // max(1, rows // 1024))  # Adapt iterations to size
-        
+
+        # Run initial benchmark to estimate timing
         if self.device.startswith('cuda'):
             self.torch.cuda.synchronize()
         start_time = time.perf_counter()
-        
+
         for _ in range(num_iterations):
             gpu_tensor = cpu_tensor.to(self.device)
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
+
         end_time = time.perf_counter()
-        
+        initial_elapsed = end_time - start_time
+
+        # If too fast, increase iterations to reach minimum duration
+        if initial_elapsed < min_duration:
+            if initial_elapsed > 0:
+                scaling_factor = max(2, int(min_duration / initial_elapsed))
+            else:
+                scaling_factor = 100  # Aggressive scaling if timing is too precise
+            num_iterations *= scaling_factor
+
+            # Re-run with adjusted iterations
+            if self.device.startswith('cuda'):
+                self.torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            for _ in range(num_iterations):
+                gpu_tensor = cpu_tensor.to(self.device)
+                if self.device.startswith('cuda'):
+                    self.torch.cuda.synchronize()
+
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+        else:
+            elapsed_time = initial_elapsed
+
         total_bytes = tensor_size_bytes * num_iterations
-        elapsed_time = end_time - start_time
-        bandwidth_gb_s = (total_bytes / elapsed_time) / (1024**3)
-        
+
+        # Prevent division by zero - if elapsed time is too small, estimate minimum bandwidth
+        if elapsed_time <= 0:
+            logger.warning(f"Memory copy elapsed time too small ({elapsed_time}s), using fallback")
+            bandwidth_gb_s = 0.1  # Conservative fallback bandwidth in GB/s
+        else:
+            bandwidth_gb_s = (total_bytes / elapsed_time) / (1024**3)
+
         return bandwidth_gb_s
     
     async def _test_memory_write_bandwidth(self, rows: int, cols: int) -> float:
         """Test memory write bandwidth using tensor operations."""
         num_iterations = max(10, 1000 // max(1, rows // 1024))
-        
+
         # Create tensors on device
         tensor_a = self.torch.randn(rows, cols, device=self.device, dtype=self.torch.float32)
         tensor_size_bytes = tensor_a.numel() * 4
-        
+
         # Warm up
         for _ in range(3):
             tensor_a.fill_(1.0)
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
-        # Benchmark write operations
+
+        # Adaptive benchmarking - ensure minimum duration
+        min_duration = 0.01  # Minimum 10ms duration
+
+        # Run initial benchmark to estimate timing
         if self.device.startswith('cuda'):
             self.torch.cuda.synchronize()
         start_time = time.perf_counter()
-        
+
         for i in range(num_iterations):
             tensor_a.fill_(float(i))
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
+
         end_time = time.perf_counter()
-        
+        initial_elapsed = end_time - start_time
+
+        # If too fast, increase iterations to reach minimum duration
+        if initial_elapsed < min_duration:
+            if initial_elapsed > 0:
+                scaling_factor = max(2, int(min_duration / initial_elapsed))
+            else:
+                scaling_factor = 100  # Aggressive scaling if timing is too precise
+            num_iterations *= scaling_factor
+
+            # Re-run with adjusted iterations
+            if self.device.startswith('cuda'):
+                self.torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            for i in range(num_iterations):
+                tensor_a.fill_(float(i % 100))  # Cycle through values to prevent optimization
+                if self.device.startswith('cuda'):
+                    self.torch.cuda.synchronize()
+
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+        else:
+            elapsed_time = initial_elapsed
+
         total_bytes = tensor_size_bytes * num_iterations
-        elapsed_time = end_time - start_time
-        bandwidth_gb_s = (total_bytes / elapsed_time) / (1024**3)
-        
+
+        # Prevent division by zero - if elapsed time is too small, estimate minimum bandwidth
+        if elapsed_time <= 0:
+            logger.warning(f"Memory write elapsed time too small ({elapsed_time}s), using fallback")
+            bandwidth_gb_s = 0.1  # Conservative fallback bandwidth in GB/s
+        else:
+            bandwidth_gb_s = (total_bytes / elapsed_time) / (1024**3)
+
         return bandwidth_gb_s
     
     async def _test_memory_read_bandwidth(self, rows: int, cols: int) -> float:
         """Test memory read bandwidth using reduction operations."""
         num_iterations = max(10, 500 // max(1, rows // 1024))
-        
+
         tensor_a = self.torch.randn(rows, cols, device=self.device, dtype=self.torch.float32)
         tensor_size_bytes = tensor_a.numel() * 4
-        
+
         # Warm up
         for _ in range(3):
             _ = tensor_a.sum()
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
-        # Benchmark read operations (sum requires reading all elements)
+
+        # Adaptive benchmarking - ensure minimum duration
+        min_duration = 0.01  # Minimum 10ms duration
+
+        # Run initial benchmark to estimate timing
         if self.device.startswith('cuda'):
             self.torch.cuda.synchronize()
         start_time = time.perf_counter()
-        
+
         for _ in range(num_iterations):
             result = tensor_a.sum()
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
+
         end_time = time.perf_counter()
-        
+        initial_elapsed = end_time - start_time
+
+        # If too fast, increase iterations to reach minimum duration
+        if initial_elapsed < min_duration:
+            if initial_elapsed > 0:
+                scaling_factor = max(2, int(min_duration / initial_elapsed))
+            else:
+                scaling_factor = 100  # Aggressive scaling if timing is too precise
+            num_iterations *= scaling_factor
+
+            # Re-run with adjusted iterations
+            if self.device.startswith('cuda'):
+                self.torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            for _ in range(num_iterations):
+                result = tensor_a.sum()
+                if self.device.startswith('cuda'):
+                    self.torch.cuda.synchronize()
+
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+        else:
+            elapsed_time = initial_elapsed
+
         total_bytes = tensor_size_bytes * num_iterations
-        elapsed_time = end_time - start_time
-        bandwidth_gb_s = (total_bytes / elapsed_time) / (1024**3)
-        
+
+        # Prevent division by zero - if elapsed time is too small, estimate minimum bandwidth
+        if elapsed_time <= 0:
+            logger.warning(f"Memory read elapsed time too small ({elapsed_time}s), using fallback")
+            bandwidth_gb_s = 0.1  # Conservative fallback bandwidth in GB/s
+        else:
+            bandwidth_gb_s = (total_bytes / elapsed_time) / (1024**3)
+
         return bandwidth_gb_s
     
     async def benchmark_compute_flops(self, available_memory_mb: int) -> Dict:
@@ -276,34 +372,65 @@ class GPUBenchmark:
         # Create matrices
         A = self.torch.randn(size, size2, device=self.device, dtype=dtype)
         B = self.torch.randn(size2, size, device=self.device, dtype=dtype)
-        
+
         # Warm up
         for _ in range(3):
             _ = self.torch.mm(A, B)
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
-        # Benchmark
+
+        # Adaptive benchmarking - ensure minimum duration
+        min_duration = 0.01  # Minimum 10ms duration
         num_iterations = max(5, 100 // max(1, size // 2048))
-        
+
+        # Run initial benchmark to estimate timing
         if self.device.startswith('cuda'):
             self.torch.cuda.synchronize()
         start_time = time.perf_counter()
-        
+
         for _ in range(num_iterations):
             C = self.torch.mm(A, B)
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
+
         end_time = time.perf_counter()
-        
+        initial_elapsed = end_time - start_time
+
+        # If too fast, increase iterations to reach minimum duration
+        if initial_elapsed < min_duration:
+            if initial_elapsed > 0:
+                scaling_factor = max(2, int(min_duration / initial_elapsed))
+            else:
+                scaling_factor = 100  # Aggressive scaling if timing is too precise
+            num_iterations *= scaling_factor
+
+            # Re-run with adjusted iterations
+            if self.device.startswith('cuda'):
+                self.torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            for _ in range(num_iterations):
+                C = self.torch.mm(A, B)
+                if self.device.startswith('cuda'):
+                    self.torch.cuda.synchronize()
+
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+        else:
+            elapsed_time = initial_elapsed
+
         # Calculate FLOPS
         # Matrix multiplication: A(m,k) * B(k,n) requires 2*m*k*n operations
         flops_per_matmul = 2 * size * size2 * size
         total_flops = flops_per_matmul * num_iterations
-        elapsed_time = end_time - start_time
-        
-        tflops = (total_flops / elapsed_time) / 1e12
+
+        # Prevent division by zero
+        if elapsed_time <= 0:
+            logger.warning(f"Matrix multiply elapsed time too small ({elapsed_time}s), using fallback")
+            tflops = 0.01  # Conservative fallback TFLOPS
+        else:
+            tflops = (total_flops / elapsed_time) / 1e12
+
         return tflops
     
     async def benchmark_precision_performance(self, available_memory_mb: int) -> Dict:
@@ -338,10 +465,16 @@ class GPUBenchmark:
         # Calculate relative speedups (compared to FP32)
         if "fp32" in results:
             fp32_throughput = results["fp32"]["throughput_gops"]
-            for precision_name in results:
-                if precision_name != "fp32":
-                    speedup = results[precision_name]["throughput_gops"] / fp32_throughput
-                    results[precision_name]["relative_speedup"] = speedup
+            if fp32_throughput > 0:
+                for precision_name in results:
+                    if precision_name != "fp32":
+                        speedup = results[precision_name]["throughput_gops"] / fp32_throughput
+                        results[precision_name]["relative_speedup"] = speedup
+            else:
+                logger.warning(f"FP32 throughput is zero ({fp32_throughput}), cannot calculate relative speedups")
+                for precision_name in results:
+                    if precision_name != "fp32":
+                        results[precision_name]["relative_speedup"] = 1.0  # Default to no speedup
         
         return results
     
@@ -349,31 +482,62 @@ class GPUBenchmark:
         """Test computational throughput for a specific precision."""
         A = self.torch.randn(size, size, device=self.device, dtype=dtype)
         B = self.torch.randn(size, size, device=self.device, dtype=dtype)
-        
+
         # Warm up
         for _ in range(3):
             C = A @ B  # Matrix multiplication
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
-        # Benchmark
+
+        # Adaptive benchmarking - ensure minimum duration
+        min_duration = 0.01  # Minimum 10ms duration
         num_iterations = max(10, 200 // max(1, size // 1024))
-        
+
+        # Run initial benchmark to estimate timing
         if self.device.startswith('cuda'):
             self.torch.cuda.synchronize()
         start_time = time.perf_counter()
-        
+
         for _ in range(num_iterations):
             C = A @ B
             if self.device.startswith('cuda'):
                 self.torch.cuda.synchronize()
-        
+
         end_time = time.perf_counter()
-        
+        initial_elapsed = end_time - start_time
+
+        # If too fast, increase iterations to reach minimum duration
+        if initial_elapsed < min_duration:
+            if initial_elapsed > 0:
+                scaling_factor = max(2, int(min_duration / initial_elapsed))
+            else:
+                scaling_factor = 100  # Aggressive scaling if timing is too precise
+            num_iterations *= scaling_factor
+
+            # Re-run with adjusted iterations
+            if self.device.startswith('cuda'):
+                self.torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            for _ in range(num_iterations):
+                C = A @ B
+                if self.device.startswith('cuda'):
+                    self.torch.cuda.synchronize()
+
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+        else:
+            elapsed_time = initial_elapsed
+
         # Calculate throughput in GOPS (Giga Operations Per Second)
         ops_per_matmul = 2 * size * size * size  # Matrix multiply operations
         total_ops = ops_per_matmul * num_iterations
-        elapsed_time = end_time - start_time
-        
-        gops = (total_ops / elapsed_time) / 1e9
+
+        # Prevent division by zero
+        if elapsed_time <= 0:
+            logger.warning(f"Precision throughput elapsed time too small ({elapsed_time}s), using fallback")
+            gops = 0.01  # Conservative fallback GOPS
+        else:
+            gops = (total_ops / elapsed_time) / 1e9
+
         return gops

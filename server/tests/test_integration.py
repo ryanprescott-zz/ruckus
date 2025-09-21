@@ -503,15 +503,23 @@ class TestAgentRegistrationIntegration:
     def test_full_api_workflow_integration(self, temp_db_path):
         """Test complete API workflow from registration to status retrieval."""
         server_settings = create_test_server_settings(temp_db_path)
-        
+
         agent_manager = AgentManager(server_settings)
-        
+
         async def run_workflow():
             await agent_manager.start()
             try:
+                # Create job manager for unregistration endpoint
+                from ruckus_server.core.job_manager import JobManager
+                from ruckus_server.core.config import JobManagerSettings
+                job_manager_settings = JobManagerSettings(storage=server_settings.storage)
+                job_manager = JobManager(job_manager_settings, agent_manager.storage)
+                await job_manager.start()
+
                 # Create fresh app instance for this test
                 test_app = create_test_app()
                 test_app.state.agent_manager = agent_manager
+                test_app.state.job_manager = job_manager
                 
                 with TestClient(test_app) as client:
                     # 1. Register agent
@@ -598,9 +606,10 @@ class TestAgentRegistrationIntegration:
                     final_list_response = client.get("/api/v1/agents/")
                     assert final_list_response.status_code == 200
                     assert len(final_list_response.json()["agents"]) == 0
-                
+
                 test_app.state.server = None
             finally:
+                await job_manager.stop()
                 await agent_manager.stop()
         
         asyncio.run(run_workflow())

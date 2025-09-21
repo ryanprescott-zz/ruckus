@@ -44,31 +44,49 @@ export function formatTimestamp(isoString: string): string {
  * Format agent details for display in text areas with complete nested content
  */
 export function formatAgentDetails(
-  _title: string, 
+  _title: string,
   data: Record<string, any>
 ): string {
   if (!data || Object.keys(data).length === 0) {
     return `No data available`;
   }
-  
+
   try {
-    // Create complete nested format
-    const entries = Object.entries(data);
-    
-    // Format each entry with full recursive content
-    const formattedEntries = entries.map(([key, value]) => {
+    // Separate error fields for special handling
+    const errorFields = ['error', 'error_type', 'traceback'];
+    const errorEntries: string[] = [];
+    const regularEntries: string[] = [];
+
+    Object.entries(data).forEach(([key, value]) => {
       const fieldName = formatFieldName(key);
       const fieldValue = formatFieldValue(value, '');
-      
-      // If the value contains newlines (nested content), format it properly
+
+      let formattedEntry: string;
       if (fieldValue.includes('\n')) {
-        return `${fieldName}:\n  ${fieldValue.replace(/\n/g, '\n  ')}`;
+        formattedEntry = `${fieldName}:\n  ${fieldValue.replace(/\n/g, '\n  ')}`;
+      } else {
+        formattedEntry = `${fieldName}: ${fieldValue}`;
       }
-      
-      return `${fieldName}: ${fieldValue}`;
+
+      // Highlight error fields
+      if (errorFields.includes(key) && value !== null && value !== undefined && value !== '') {
+        if (key === 'error') {
+          errorEntries.push(`🚨 ${formattedEntry}`);
+        } else if (key === 'error_type') {
+          errorEntries.push(`⚠️  ${formattedEntry}`);
+        } else if (key === 'traceback') {
+          errorEntries.push(`📋 ${formattedEntry}`);
+        } else {
+          errorEntries.push(`❌ ${formattedEntry}`);
+        }
+      } else {
+        regularEntries.push(formattedEntry);
+      }
     });
-    
-    return formattedEntries.join('\n\n');
+
+    // Show error information first if present
+    const allEntries = [...errorEntries, ...regularEntries];
+    return allEntries.join('\n\n');
   } catch (error) {
     return `Error formatting data: ${error}`;
   }

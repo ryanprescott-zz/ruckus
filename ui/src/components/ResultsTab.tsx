@@ -170,7 +170,7 @@ const ResultsTab: React.FC = () => {
                     <td>{result.agent_id}</td>
                     <td>
                       <span className={`status status-${result.status.toLowerCase()}`}>
-                        {result.status}
+                        {result.status === 'FAILED' ? '❌ FAILED' : result.status}
                       </span>
                     </td>
                     <td>

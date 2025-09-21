@@ -176,11 +176,35 @@ export interface LLMGenerationParams {
   prompt_template: PromptTemplate;
 }
 
+// Hardware benchmark parameter interfaces
+export interface GPUBenchmarkParams {
+  test_memory_bandwidth: boolean;
+  test_compute_flops: boolean;
+  test_tensor_cores: boolean;
+  max_memory_usage_percent: number;
+  benchmark_duration_seconds: number;
+}
+
+export interface MemoryBenchmarkParams {
+  test_sizes_mb: number[];
+  test_patterns: string[];
+  iterations_per_size: number;
+}
+
+export interface ComputeBenchmarkParams {
+  precision_types: string[];
+  matrix_sizes: number[];
+  include_tensor_ops: boolean;
+}
+
+// Union type for all task parameter types
+export type TaskParams = LLMGenerationParams | GPUBenchmarkParams | MemoryBenchmarkParams | ComputeBenchmarkParams;
+
 export interface TaskSpec {
   name: string;
   type: TaskType;
   description?: string;
-  params: any; // This can be LLMGenerationParams or other types
+  params: TaskParams;
 }
 
 export interface FrameworkSpec {
